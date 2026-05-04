@@ -2,10 +2,11 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { Eye, EyeOff, Zap, User } from "lucide-react";
 
 export default function SignupPage() {
+  const { signup } = useAuth();
   const router = useRouter();
   const [name,     setName]     = useState("");
   const [email,    setEmail]    = useState("");
@@ -24,43 +25,19 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
 
-    // 1. Create auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (authError || !authData.user) {
-      setError(authError?.message ?? "Sign up failed. Please try again.");
-      setLoading(false);
-      return;
-    }
-
-    // 2. Insert into jeepneyriders table with role = resident
-    const { error: dbError } = await supabase
-      .from("jeepneyriders")
-      .insert({
-        id:         authData.user.id,   // matches auth.users uuid
-        full_name:  name,
-        email:      email,
-        role:       "resident",
-        balance:    0,
-        rfid_uid:   null,
-      });
-
-    if (dbError) {
-      setError(dbError.message);
-      setLoading(false);
-      return;
-    }
+    // Use AuthProvider's signup — handles auth + DB insert + state update atomically
+    const ok = await signup(name, email, password, "resident");
 
     setLoading(false);
-    setSuccess(true);
 
-    // If email confirmation is OFF in Supabase, redirect immediately
-    if (authData.session) {
-      setTimeout(() => router.push("/dashboard"), 1500);
+    if (!ok) {
+      setError("Sign up failed. The email may already be in use.");
+      return;
     }
+
+    setSuccess(true);
+    // Email confirmation OFF → session exists, redirect immediately
+    setTimeout(() => router.push("/dashboard"), 1200);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -118,7 +95,6 @@ export default function SignupPage() {
           Register and start riding Timbol vehicles across Calbayog City with ease.
         </p>
 
-        {/* Steps */}
         <div className="fade-up delay-3" style={{ marginTop: 44, display: "flex", flexDirection: "column", gap: 16 }}>
           {[
             ["01", "Create your account"],
@@ -148,7 +124,6 @@ export default function SignupPage() {
             <Link href="/login" style={{ color: "#f5a623", textDecoration: "none", fontWeight: 500 }}>Sign in</Link>
           </p>
 
-          {/* Role badge — always resident */}
           <div style={{
             display: "flex", alignItems: "center", gap: 10,
             background: "rgba(245,166,35,0.07)",
@@ -162,7 +137,6 @@ export default function SignupPage() {
             </div>
           </div>
 
-          {/* Success state */}
           {success ? (
             <div style={{
               background: "rgba(34,197,94,0.08)",
@@ -174,13 +148,11 @@ export default function SignupPage() {
                 Account created!
               </div>
               <div style={{ fontSize: 13, color: "#9ca3af" }}>
-                Check your email to confirm your account, then{" "}
-                <Link href="/login" style={{ color: "#f5a623", textDecoration: "none" }}>sign in</Link>.
+                Redirecting you to your dashboard…
               </div>
             </div>
           ) : (
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Full name */}
               <div>
                 <label style={{ fontSize: 13, color: "#9ca3af", display: "block", marginBottom: 6 }}>Full name</label>
                 <input
@@ -192,7 +164,6 @@ export default function SignupPage() {
                 />
               </div>
 
-              {/* Email */}
               <div>
                 <label style={{ fontSize: 13, color: "#9ca3af", display: "block", marginBottom: 6 }}>Email address</label>
                 <input
@@ -204,7 +175,6 @@ export default function SignupPage() {
                 />
               </div>
 
-              {/* Password */}
               <div>
                 <label style={{ fontSize: 13, color: "#9ca3af", display: "block", marginBottom: 6 }}>Password</label>
                 <div style={{ position: "relative" }}>
