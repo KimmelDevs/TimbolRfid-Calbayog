@@ -169,11 +169,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Build the user object locally — zero extra network calls
     const profile: User = { id: newUser.id, name, email, role, balance: 0 };
-    skipFetchForUid.current = newUser.id;
 
     if (authData.session) {
+      // Email confirmation OFF → session exists immediately, set state now
+      // and tell the onAuthStateChange listener to skip its own fetchProfile
+      skipFetchForUid.current = newUser.id;
       setSession(authData.session);
       setUser(profile);
+    } else {
+      // Email confirmation ON → no session yet, Supabase will send a confirm email.
+      // Just mark loading as done so the UI doesn't spin forever.
+      setLoading(false);
     }
 
     return true;
