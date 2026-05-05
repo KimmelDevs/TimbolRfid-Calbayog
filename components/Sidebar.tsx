@@ -24,6 +24,7 @@ export default function Sidebar() {
     { href:"/dashboard/history",     label:"Ride History",icon:<History size={18}/> },
     { href:"/dashboard/locations",   label:"Locations",   icon:<MapPin size={18}/> },
     { href:"/dashboard/balance",     label:"Balance",     icon:<Wallet size={18}/> },
+    { href:"/dashboard/topup",       label:"Top Up",      icon:<Zap size={18}/> },
   ];
 
   const adminNav: NavItem[] = [
