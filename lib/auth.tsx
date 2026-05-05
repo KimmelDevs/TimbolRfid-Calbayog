@@ -34,6 +34,18 @@ interface AuthCtx {
 
 const AuthContext = createContext<AuthCtx | null>(null);
 
+function rowToUser(data: Record<string, unknown>): User {
+  return {
+    id:      data.id as string,
+    name:    data.full_name as string,
+    email:   data.email as string,
+    role:    data.role as Role,
+    balance: (data.balance as number) ?? 0,
+    rfidUid: (data.rfid_uid as string) ?? undefined,
+    avatar:  (data.avatar as string) ?? undefined,
+  };
+}
+
 async function fetchProfile(userId: string): Promise<User | null> {
   const { data, error } = await supabase
     .from("jeepneyriders")
@@ -41,92 +53,85 @@ async function fetchProfile(userId: string): Promise<User | null> {
     .eq("id", userId)
     .single();
 
-  if (error) {
-    console.error("[auth] fetchProfile error:", error.message);
+  if (error || !data) {
+    console.error("[auth] fetchProfile error:", error?.message);
     return null;
   }
-  if (!data) return null;
-
-  return {
-    id: data.id,
-    name: data.full_name,
-    email: data.email,
-    role: data.role as Role,
-    balance: data.balance ?? 0,
-    rfidUid: data.rfid_uid ?? undefined,
-    avatar: data.avatar ?? undefined,
-  };
+  return rowToUser(data);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user,    setUser]    = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  // When true, onAuthStateChange skips its fetchProfile — caller handles it
-  const suppressAuthChange = useRef(false);
+
+  // Tracks the user ID that the caller already hydrated so onAuthStateChange
+  // skips a redundant fetchProfile for that specific event.
+  const skipFetchForUid = useRef<string | null>(null);
 
   useEffect(() => {
-    // Restore session on mount / page refresh
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setUser(profile);
-      }
-      setLoading(false);
-    });
-
-    // Handles token refresh & external sign-out only.
-    // login() and signup() suppress this to avoid a duplicate fetchProfile.
+    // Restore session on mount/refresh — run getSession and the listener
+    // in parallel so whichever resolves first can set state.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (suppressAuthChange.current) return;
-
       setSession(session);
 
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        // profile may be null briefly during signup before the row is inserted
-        if (profile) setUser(profile);
-      } else {
+      if (!session?.user) {
         setUser(null);
+        setLoading(false);
+        return;
       }
+
+      // Skip if the caller (login/signup) already set the user for this uid
+      if (skipFetchForUid.current === session.user.id) {
+        skipFetchForUid.current = null;
+        setLoading(false);
+        return;
+      }
+
+      const profile = await fetchProfile(session.user.id);
+      if (profile) setUser(profile);
+      setLoading(false);
+    });
+
+    // getSession handles the initial page-load case (stored token).
+    // onAuthStateChange also fires INITIAL_SESSION, so we only need
+    // getSession to cover environments where that event doesn't fire.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) setLoading(false);
+      // If there IS a session, onAuthStateChange will handle it.
     });
 
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email: string, password: string): Promise<Role | null> => {
-    suppressAuthChange.current = true;
+    // Run auth + profile fetch in parallel:
+    // signInWithPassword returns the user id, then we fetch the profile.
+    // We can't truly parallelize these two since we need the uid first,
+    // but we CAN tell onAuthStateChange to skip its own fetchProfile call.
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error || !data.user) {
-        console.error("[auth] login error:", error?.message);
-        return null;
-      }
-
-      const profile = await fetchProfile(data.user.id);
-
-      if (!profile) {
-        console.error("[auth] login: profile not found for user", data.user.id);
-        // Sign out so the user isn't stuck in a half-authenticated state
-        await supabase.auth.signOut();
-        return null;
-      }
-
-      setSession(data.session);
-      setUser(profile);
-      return profile.role;
-    } finally {
-      // Always release suppression — even if an exception is thrown
-      suppressAuthChange.current = false;
+    if (error || !data.user) {
+      console.error("[auth] login error:", error?.message);
+      return null;
     }
+
+    // Fetch profile while we mark the uid to skip in the listener
+    skipFetchForUid.current = data.user.id;
+    const profile = await fetchProfile(data.user.id);
+
+    if (!profile) {
+      console.error("[auth] login: profile not found for", data.user.id);
+      skipFetchForUid.current = null;
+      await supabase.auth.signOut();
+      return null;
+    }
+
+    setSession(data.session);
+    setUser(profile);
+    return profile.role;
   };
 
   const signup = async (
@@ -135,50 +140,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     role: Role
   ): Promise<boolean> => {
-    // Suppress onAuthStateChange — the jeepneyriders row doesn't exist yet
-    // when Supabase fires SIGNED_IN, so fetchProfile would return null.
-    suppressAuthChange.current = true;
+    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
 
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-
-      if (authError || !authData.user) {
-        console.error("[auth] signup error:", authError?.message);
-        return false;
-      }
-
-      // Insert profile row BEFORE releasing suppression
-      const { error: dbError } = await supabase.from("jeepneyriders").insert({
-        id: authData.user.id,
-        full_name: name,
-        email: email,
-        role: role,
-        balance: 0,
-        rfid_uid: null,
-        avatar: null,
-      });
-
-      if (dbError) {
-        console.error("[auth] signup: profile insert error:", dbError.message);
-        // Clean up the auth user so they can try again
-        await supabase.auth.signOut();
-        return false;
-      }
-
-      // If email confirmation is disabled, session exists immediately
-      if (authData.session) {
-        const profile = await fetchProfile(authData.user.id);
-        setSession(authData.session);
-        setUser(profile);
-      }
-
-      return true;
-    } finally {
-      suppressAuthChange.current = false;
+    if (authError || !authData.user) {
+      console.error("[auth] signup error:", authError?.message);
+      return false;
     }
+
+    const newUser = authData.user;
+
+    // Run the DB insert. We already have all the data we need locally —
+    // no need for a fetchProfile round-trip after this succeeds.
+    const { error: dbError } = await supabase.from("jeepneyriders").insert({
+      id:        newUser.id,
+      full_name: name,
+      email,
+      role,
+      balance:   0,
+      rfid_uid:  null,
+      avatar:    null,
+    });
+
+    if (dbError) {
+      console.error("[auth] signup: profile insert error:", dbError.message);
+      await supabase.auth.signOut();
+      return false;
+    }
+
+    // Build the user object locally — zero extra network calls
+    const profile: User = { id: newUser.id, name, email, role, balance: 0 };
+    skipFetchForUid.current = newUser.id;
+
+    if (authData.session) {
+      setSession(authData.session);
+      setUser(profile);
+    }
+
+    return true;
   };
 
   const logout = async () => {
@@ -187,7 +185,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   };
 
-  // Call this to re-fetch the profile from the DB (e.g. after updating avatar/balance)
   const refreshProfile = async () => {
     if (!session?.user) return;
     const profile = await fetchProfile(session.user.id);
@@ -195,9 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={{ user, session, loading, login, signup, logout, refreshProfile }}
-    >
+    <AuthContext.Provider value={{ user, session, loading, login, signup, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
