@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
               },
             ],
             payment_method_types: ["gcash"],  // GCash only
-            success_url: `${SITE_URL}/dashboard/topup/success?userId=${userId}&amount=${pesos}`,
+            success_url: `${SITE_URL}/topup/success?userId=${userId}&amount=${pesos}`,
             cancel_url:  `${SITE_URL}/dashboard/topup?cancelled=1`,
             description: `Timbol RFID Top-up — ₱${pesos.toFixed(2)}`,
             // Store userId in metadata so webhook can read it
