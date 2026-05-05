@@ -18,7 +18,24 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const role = await login(email, password);
+
+    const timeout = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 10000)
+    );
+
+    let role: string | null;
+    try {
+      role = await Promise.race([login(email, password), timeout]);
+    } catch (err) {
+      setLoading(false);
+      if ((err as Error).message === "timeout") {
+        setError("Login is taking too long. Please check your connection and try again.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+      return;
+    }
+
     setLoading(false);
     if (!role) {
       setError("Invalid email or password.");
