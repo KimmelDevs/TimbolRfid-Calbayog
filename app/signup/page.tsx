@@ -25,8 +25,23 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
 
-    // Use AuthProvider's signup — handles auth + DB insert + state update atomically
-    const ok = await signup(name, email, password, "resident");
+    // Race signup against a 10s timeout
+    const timeout = new Promise<false>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 10000)
+    );
+
+    let ok: boolean;
+    try {
+      ok = await Promise.race([signup(name, email, password, "resident"), timeout]);
+    } catch (err) {
+      setLoading(false);
+      if ((err as Error).message === "timeout") {
+        setError("Sign up is taking too long. Please check your connection and try again.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+      return;
+    }
 
     setLoading(false);
 
@@ -36,7 +51,6 @@ export default function SignupPage() {
     }
 
     setSuccess(true);
-    // Email confirmation OFF → session exists, redirect immediately
     setTimeout(() => router.push("/dashboard"), 1200);
   };
 
