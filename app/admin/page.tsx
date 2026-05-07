@@ -36,8 +36,11 @@ function timeAgo(iso: string) {
 }
 
 export default function AdminPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [recentTx,     setRecentTx]     = useState<Transaction[]>([]);
   const [residents,    setResidents]    = useState<Resident[]>([]);
+  const [todayPaid,    setTodayPaid]    = useState(0);
+  const [todayFailed,  setTodayFailed]  = useState(0);
+  const [todayRevenue, setTodayRevenue] = useState(0);
   const [dataLoading,  setDataLoading]  = useState(true);
 
   // Scanner state
@@ -55,16 +58,34 @@ export default function AdminPage() {
 
   // Fetch dashboard data
   const fetchDashboard = useCallback(async () => {
-    const [txRes, resRes] = await Promise.all([
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayIso = todayStart.toISOString();
+
+    const [recentRes, todayRes, resRes] = await Promise.all([
+      // 5 most recent transactions for the table
       supabase.from("transactions")
-        .select("id,uid,passenger_name,amount,status,lat,lng,timestamp,route")
-        .order("timestamp", { ascending: false }).limit(50),
+        .select("id,rfid_uid,passenger_name,amount,status,lat,lng,timestamp,route")
+        .order("timestamp", { ascending: false }).limit(5),
+      // today's transactions for stats — only amount and status needed
+      supabase.from("transactions")
+        .select("amount,status")
+        .gte("timestamp", todayIso),
+      // all residents
       supabase.from("jeepneyriders")
         .select("id,full_name,email,rfid_uid,balance")
         .eq("role", "resident").order("full_name"),
     ]);
-    if (txRes.data)  setTransactions(txRes.data);
-    if (resRes.data) setResidents(resRes.data);
+
+    if (recentRes.data) setRecentTx(recentRes.data.map(t => ({ ...t, uid: t.rfid_uid ?? '' })));
+    if (resRes.data)    setResidents(resRes.data);
+    if (todayRes.data) {
+      const paid   = todayRes.data.filter(t => t.status === "PAID");
+      const failed = todayRes.data.filter(t => t.status === "FAILED");
+      setTodayPaid(paid.length);
+      setTodayFailed(failed.length);
+      setTodayRevenue(paid.reduce((s, t) => s + t.amount, 0));
+    }
     setDataLoading(false);
   }, []);
 
@@ -120,8 +141,8 @@ export default function AdminPage() {
         status = "PAID";
         updatedResident = { ...matched, balance: matched.balance - FARE };
 
-        await supabase.from("transactions").insert({
-          uid:            uid,
+        const { error: txErr } = await supabase.from("transactions").insert({
+          rfid_uid:       uid,
           passenger_name: matched.full_name,
           amount:         FARE,
           status:         "PAID",
@@ -129,27 +150,32 @@ export default function AdminPage() {
           lat:            parsed.lat ?? null,
           lng:            parsed.lng ?? null,
           route:          "Timbol",
+          timestamp:      now,
         });
+        if (txErr) console.error("[tx insert PAID]", txErr.message);
 
         setResidents(prev => prev.map(r =>
           r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
         ));
 
-        setTransactions(prev => [{
+        setRecentTx(prev => [{
           id:             crypto.randomUUID(),
           uid,
           passenger_name: matched.full_name,
           amount:         FARE,
-          status:         "PAID",
+          status:         "PAID" as const,
           lat:            parsed.lat ?? 0,
           lng:            parsed.lng ?? 0,
           timestamp:      now,
           route:          "Timbol",
-        }, ...prev]);
+        }, ...prev].slice(0, 5));
+        // Optimistically update today's stats
+        setTodayPaid(p => p + 1);
+        setTodayRevenue(r => r + FARE);
       }
     } else {
-      await supabase.from("transactions").insert({
-        uid:            uid,
+      const { error: txErrF } = await supabase.from("transactions").insert({
+        rfid_uid:       uid,
         passenger_name: matched?.full_name ?? null,
         amount:         FARE,
         status:         "FAILED",
@@ -157,7 +183,9 @@ export default function AdminPage() {
         lat:            parsed.lat ?? null,
         lng:            parsed.lng ?? null,
         route:          "Timbol",
+        timestamp:      now,
       });
+      if (txErrF) console.error("[tx insert FAILED]", txErrF.message);
     }
 
     const scan: LiveScan = {
@@ -182,10 +210,7 @@ export default function AdminPage() {
     enabled: scanActive,
   });
 
-  // Derived stats
-  const paid    = transactions.filter(t => t.status === "PAID");
-  const failed  = transactions.filter(t => t.status === "FAILED");
-  const revenue = paid.reduce((s, t) => s + t.amount, 0);
+  // Derived stats come from today's server-side query
 
   const skeletonRow = (cols: number) => (
     <tr>
@@ -238,9 +263,9 @@ export default function AdminPage() {
       {/* Stat Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 32 }}>
         <StatCard label="Total Residents" value={dataLoading ? "—" : String(residents.length)} sub="Registered cardholders" icon={<Users size={18}/>} delay={1}/>
-        <StatCard label="Revenue Today"   value={dataLoading ? "—" : `₱${revenue.toFixed(2)}`} sub="Collected fares" icon={<TrendingUp size={18}/>} delay={2} accent/>
-        <StatCard label="Successful Taps" value={dataLoading ? "—" : String(paid.length)}   sub="PAID transactions" icon={<CheckCircle2 size={18}/>} delay={3}/>
-        <StatCard label="Failed Taps"     value={dataLoading ? "—" : String(failed.length)} sub="Errors / low balance" icon={<XCircle size={18}/>} delay={4}/>
+        <StatCard label="Revenue Today"   value={dataLoading ? "—" : `₱${todayRevenue.toFixed(2)}`} sub="Collected fares" icon={<TrendingUp size={18}/>} delay={2} accent/>
+        <StatCard label="Successful Taps" value={dataLoading ? "—" : String(todayPaid)}   sub="PAID transactions" icon={<CheckCircle2 size={18}/>} delay={3}/>
+        <StatCard label="Failed Taps"     value={dataLoading ? "—" : String(todayFailed)} sub="Errors / low balance" icon={<XCircle size={18}/>} delay={4}/>
       </div>
 
       {/* ══ LIVE RFID SCANNER ══════════════════════════════════════════════ */}
@@ -516,7 +541,7 @@ export default function AdminPage() {
             <tbody>
               {dataLoading
                 ? Array.from({ length: 5 }).map((_, i) => skeletonRow(6))
-                : transactions.slice(0, 8).map(tx => (
+                : recentTx.map(tx => (
                     <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                       <td style={{ padding: "13px 16px", fontSize: 12, fontFamily: "monospace", color: "#9ca3af" }}>{tx.uid}</td>
                       <td style={{ padding: "13px 16px", fontSize: 13 }}>{tx.passenger_name}</td>
