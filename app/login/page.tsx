@@ -43,7 +43,10 @@ export default function LoginPage() {
       }
 
       const role = data.session?.user.user_metadata?.role;
-      router.replace(role === "admin" ? "/admin" : "/dashboard");
+      // Hard redirect so the page reloads with the session already persisted.
+      // router.replace() races with onAuthStateChange in AuthProvider — the layout
+      // catches loading=true mid-transition and the redirect never completes.
+      window.location.href = role === "admin" ? "/admin" : "/dashboard";
     } catch (e: unknown) {
       setError((e as Error).message || "Something went wrong.");
     } finally {
