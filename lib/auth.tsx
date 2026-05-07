@@ -1,13 +1,6 @@
 "use client";
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-} from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Session } from "@supabase/supabase-js";
 
 export type Role = "resident" | "admin";
 
@@ -21,168 +14,69 @@ export interface User {
   avatar?: string;
 }
 
-interface AuthCtx {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<Role | null>;
-  signup: (name: string, email: string, password: string, role: Role) => Promise<boolean>;
-  logout: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthCtx | null>(null);
-
-// Builds a User from a Supabase session.
-// Role comes from user_metadata (set at signup) — no extra DB roundtrip needed.
-// Balance/rfidUid/avatar are fetched separately via refreshProfile when needed.
-function sessionToUser(session: Session): User {
-  const meta = session.user.user_metadata ?? {};
-  return {
-    id:      session.user.id,
-    name:    (meta.name as string) ?? (session.user.email?.split("@")[0] ?? "User"),
-    email:   session.user.email ?? "",
-    role:    (meta.role as Role) ?? "resident",
-    balance: (meta.balance as number) ?? 0,
-    rfidUid: (meta.rfid_uid as string) ?? undefined,
-    avatar:  (meta.avatar as string) ?? undefined,
-  };
-}
-
-async function fetchProfileFromDB(userId: string): Promise<Partial<User> | null> {
-  const { data, error } = await supabase
-    .from("jeepneyriders")
-    .select("full_name, balance, rfid_uid, avatar")
-    .eq("id", userId)
-    .single();
-
-  if (error || !data) return null;
-  return {
-    name:    data.full_name as string,
-    balance: (data.balance as number) ?? 0,
-    rfidUid: (data.rfid_uid as string) ?? undefined,
-    avatar:  (data.avatar as string) ?? undefined,
-  };
-}
-
-export function AuthProvider({ children }: { children: ReactNode }) {
+// Lightweight hook for pages that need the full profile (balance, rfidUid, etc.)
+// Auth guarding is handled by LayoutShell — this is just for data.
+export function useProfile() {
   const [user,    setUser]    = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
+  const fetchProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setLoading(false); return; }
 
-    // onAuthStateChange fires INITIAL_SESSION immediately on mount with the
-    // persisted session — this is the only auth source we need, no getSession() race.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        if (cancelled) return;
+    const { data } = await supabase
+      .from("jeepneyriders")
+      .select("id, full_name, email, role, balance, rfid_uid, avatar")
+      .eq("id", session.user.id)
+      .single();
 
-        setSession(newSession);
-
-        if (!newSession) {
-          setUser(null);
-          setLoading(false);
-          return;
-        }
-
-        // Build user immediately from metadata — no loading flicker
-        const baseUser = sessionToUser(newSession);
-        setUser(baseUser);
-
-        // For INITIAL_SESSION (page refresh) and SIGNED_IN, enrich with DB data
-        // (balance, rfidUid, avatar may differ from metadata)
-        if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
-          const extra = await fetchProfileFromDB(newSession.user.id);
-          if (!cancelled && extra) {
-            setUser(prev => prev ? { ...prev, ...extra } : prev);
-          }
-        }
-
-        if (!cancelled) setLoading(false);
-      }
-    );
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const login = async (email: string, password: string): Promise<Role | null> => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error || !data.session) {
-      console.error("[auth] login error:", error?.message);
-      return null;
+    if (data) {
+      setUser({
+        id:      data.id,
+        name:    data.full_name,
+        email:   data.email,
+        role:    data.role,
+        balance: data.balance ?? 0,
+        rfidUid: data.rfid_uid ?? undefined,
+        avatar:  data.avatar ?? undefined,
+      });
     }
-
-    // Role is in user_metadata — available immediately, no DB fetch needed for routing
-    const role = (data.session.user.user_metadata?.role as Role) ?? "resident";
-    return role;
+    setLoading(false);
   };
 
-  const signup = async (
-    name: string,
-    email: string,
-    password: string,
-    role: Role
-  ): Promise<boolean> => {
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { name, role, balance: 0 }, // store role in metadata for fast access
-      },
-    });
+  useEffect(() => { fetchProfile(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (authError || !authData.user) {
-      console.error("[auth] signup error:", authError?.message);
-      return false;
-    }
+  return { user, loading, refreshProfile: fetchProfile };
+}
 
-    const { error: dbError } = await supabase.from("jeepneyriders").insert({
-      id:        authData.user.id,
-      full_name: name,
-      email,
-      role,
-      balance:   0,
-      rfid_uid:  null,
-      avatar:    null,
-    });
-
-    if (dbError) {
-      console.error("[auth] signup: profile insert error:", dbError.message);
-      await supabase.auth.signOut();
-      return false;
-    }
-
-    return true;
-  };
+// Keep useAuth as an alias so existing page components don't need changes
+export function useAuth() {
+  const { user, loading, refreshProfile } = useProfile();
 
   const logout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
+    window.location.href = "/login";
   };
 
-  const refreshProfile = async () => {
-    const { data: { session: s } } = await supabase.auth.getSession();
-    if (!s) return;
-    const extra = await fetchProfileFromDB(s.user.id);
-    if (extra) setUser(prev => prev ? { ...prev, ...extra } : prev);
+  const login = async (email: string, password: string): Promise<Role | null> => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.session) return null;
+    return (data.session.user.user_metadata?.role ?? "resident") as Role;
   };
 
-  return (
-    <AuthContext.Provider value={{ user, session, loading, login, signup, logout, refreshProfile }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
+  const signup = async (name: string, email: string, password: string, role: Role): Promise<boolean> => {
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { name, role } },
+    });
+    if (error || !data.user) return false;
 
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be inside AuthProvider");
-  return ctx;
+    const { error: dbErr } = await supabase.from("jeepneyriders").insert({
+      id: data.user.id, full_name: name, email, role, balance: 0, rfid_uid: null, avatar: null,
+    });
+    if (dbErr) { await supabase.auth.signOut(); return false; }
+    return true;
+  };
+
+  return { user, loading, login, logout, signup, refreshProfile };
 }

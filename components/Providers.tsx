@@ -1,6 +1,6 @@
 "use client";
-import { AuthProvider } from "@/lib/auth";
-
+// AuthProvider has been replaced by LayoutShell.
+// This file is kept in case other providers (MQTT, etc.) need to be added here.
 export default function Providers({ children }: { children: React.ReactNode }) {
-  return <AuthProvider>{children}</AuthProvider>;
+  return <>{children}</>;
 }
