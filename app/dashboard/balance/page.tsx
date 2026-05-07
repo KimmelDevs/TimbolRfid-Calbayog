@@ -63,7 +63,11 @@ export default function BalancePage() {
     }
   };
 
-  useEffect(() => { fetchData(); }, [user?.id, user?.rfidUid]); // eslint-disable-line
+  // Refresh profile + data on every visit so balance is always fresh
+  useEffect(() => {
+    refreshProfile().catch(() => {});
+    fetchData();
+  }, [user?.id, user?.rfidUid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -260,7 +264,7 @@ export default function BalancePage() {
         </div>
       )}
 
-      {/* Recent ride activity */}
+      {/* Recent rides */}
       {!loading && recentTx.length > 0 && (
         <div className="fade-up delay-3" style={{ ...card, marginBottom: 24 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, fontFamily: "Syne,sans-serif" }}>Recent Rides</div>

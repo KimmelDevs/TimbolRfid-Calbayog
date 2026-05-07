@@ -1,21 +1,27 @@
 "use client";
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { CheckCircle2, Wallet, ArrowRight, Zap } from "lucide-react";
+import { CheckCircle2, Wallet, ArrowRight, Zap, Loader2 } from "lucide-react";
 
 function SuccessContent() {
   const router             = useRouter();
   const params             = useSearchParams();
   const { refreshProfile } = useAuth();
   const refreshed          = useRef(false);
+  const [ready, setReady]  = useState(false);
 
   const amount = params.get("amount");
 
   useEffect(() => {
     if (refreshed.current) return;
     refreshed.current = true;
-    refreshProfile().catch(() => {});
+    // Wait 2s for webhook to process, then refresh balance
+    const timer = setTimeout(async () => {
+      await refreshProfile().catch(() => {});
+      setReady(true);
+    }, 2000);
+    return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -83,8 +89,11 @@ function SuccessContent() {
           fontSize: 13, color: "#22c55e", width: "100%",
           justifyContent: "center",
         }}>
-          <Wallet size={16} color="#22c55e" />
-          Balance updated — ready to ride!
+          {ready ? (
+            <><Wallet size={16} color="#22c55e" /> Balance updated — ready to ride!</>
+          ) : (
+            <><Loader2 size={16} color="#22c55e" style={{ animation: "spin 1s linear infinite" }} /> Updating your balance…</>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: 12, width: "100%" }}>
@@ -103,21 +112,24 @@ function SuccessContent() {
             Top up again
           </button>
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push("/dashboard/balance")}
+            disabled={!ready}
             style={{
               flex: 1, padding: "13px",
-              background: "linear-gradient(135deg,#f5a623,#e8813a)",
+              background: ready ? "linear-gradient(135deg,#f5a623,#e8813a)" : "#1a1f2e",
               border: "none", borderRadius: 12,
-              color: "#fff", fontSize: 14, fontWeight: 700,
-              fontFamily: "Syne,sans-serif", cursor: "pointer",
+              color: ready ? "#fff" : "#374151", fontSize: 14, fontWeight: 700,
+              fontFamily: "Syne,sans-serif", cursor: ready ? "pointer" : "not-allowed",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              boxShadow: "0 4px 20px rgba(245,166,35,0.3)",
+              boxShadow: ready ? "0 4px 20px rgba(245,166,35,0.3)" : "none",
+              transition: "all 0.3s",
             }}
           >
             Dashboard <ArrowRight size={16} />
           </button>
         </div>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
