@@ -1,47 +1,54 @@
 "use client";
-import { useState, FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 import { Eye, EyeOff, Zap } from "lucide-react";
 
 export default function LoginPage() {
-  const { login } = useAuth();
   const router = useRouter();
-  const [email, setEmail]       = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [showPw, setShowPw]     = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
+  const [showPw,   setShowPw]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  // If already logged in, skip straight to the right page
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        const role = data.session.user.user_metadata?.role;
+        router.replace(role === "admin" ? "/admin" : "/dashboard");
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSubmit = async () => {
+    if (!email || !password) {
+      setError("Email and password are required.");
+      return;
+    }
     setError("");
     setLoading(true);
 
-    const timeout = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), 10000)
-    );
-
-    let role: string | null;
     try {
-      role = await Promise.race([login(email, password), timeout]);
-    } catch (err) {
-      setLoading(false);
-      if ((err as Error).message === "timeout") {
-        setError("Login is taking too long. Please check your connection and try again.");
-      } else {
-        setError("Something went wrong. Please try again.");
-      }
-      return;
-    }
+      const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
 
-    setLoading(false);
-    if (!role) {
-      setError("Invalid email or password.");
-      return;
+      if (err) {
+        const msgs: Record<string, string> = {
+          "Invalid login credentials": "Incorrect email or password.",
+          "Email not confirmed":        "Please confirm your email first.",
+        };
+        throw new Error(msgs[err.message] || err.message);
+      }
+
+      const role = data.session?.user.user_metadata?.role;
+      router.replace(role === "admin" ? "/admin" : "/dashboard");
+    } catch (e: unknown) {
+      setError((e as Error).message || "Something went wrong.");
+    } finally {
+      setLoading(false);
     }
-    router.push(role === "admin" ? "/admin" : "/dashboard");
   };
 
   return (
@@ -52,7 +59,6 @@ export default function LoginPage() {
         flexDirection: "column", justifyContent: "center",
         padding: "60px 56px", position: "relative", overflow: "hidden",
       }}>
-        {/* Glow blobs */}
         <div style={{
           position: "absolute", top: -100, right: -100,
           width: 360, height: 360, borderRadius: "50%",
@@ -94,7 +100,6 @@ export default function LoginPage() {
           motorized vehicles across Calbayog City.
         </p>
 
-        {/* Stats */}
         <div className="fade-up delay-3" style={{ display: "flex", gap: 32, marginTop: 48 }}>
           {[["1,240+", "Rides today"], ["₱18,600", "Collected"], ["98%", "Success rate"]].map(([v, l]) => (
             <div key={l}>
@@ -121,7 +126,7 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             {/* Email */}
             <div>
               <label style={{ fontSize: 13, color: "#9ca3af", display: "block", marginBottom: 6 }}>
@@ -129,9 +134,9 @@ export default function LoginPage() {
               </label>
               <input
                 type="email"
-                required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSubmit()}
                 placeholder="you@example.com"
                 style={{
                   width: "100%", padding: "13px 16px",
@@ -146,21 +151,13 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ fontSize: 13, color: "#9ca3af" }}>Password</label>
-                <Link
-                  href="/forgot-password"
-                  style={{ fontSize: 13, color: "#f5a623", textDecoration: "none" }}
-                >
-                  Forgot password?
-                </Link>
-              </div>
+              <label style={{ fontSize: 13, color: "#9ca3af", display: "block", marginBottom: 6 }}>Password</label>
               <div style={{ position: "relative" }}>
                 <input
                   type={showPw ? "text" : "password"}
-                  required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSubmit()}
                   placeholder="••••••••"
                   style={{
                     width: "100%", padding: "13px 48px 13px 16px",
@@ -183,35 +180,47 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+          </div>
 
-            {error && (
-              <div style={{
-                background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
-                borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#ef4444",
-              }}>
-                {error}
-              </div>
-            )}
+          {error && (
+            <div style={{
+              marginTop: 16,
+              background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
+              borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#ef4444",
+            }}>
+              {error}
+            </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                marginTop: 8, padding: "14px",
-                background: loading ? "#2a2f40" : "linear-gradient(135deg,#f5a623,#e8813a)",
-                border: "none", borderRadius: 10,
-                color: loading ? "#6b7280" : "#fff",
-                fontSize: 15, fontWeight: 600,
-                cursor: loading ? "not-allowed" : "pointer",
-                fontFamily: "Syne,sans-serif", transition: "all 0.2s",
-                boxShadow: loading ? "none" : "0 4px 20px rgba(245,166,35,0.3)",
-              }}
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            style={{
+              marginTop: 28, width: "100%", padding: "14px",
+              background: loading ? "#2a2f40" : "linear-gradient(135deg,#f5a623,#e8813a)",
+              border: "none", borderRadius: 10,
+              color: loading ? "#6b7280" : "#fff",
+              fontSize: 15, fontWeight: 600,
+              cursor: loading ? "not-allowed" : "pointer",
+              fontFamily: "Syne,sans-serif", transition: "all 0.2s",
+              boxShadow: loading ? "none" : "0 4px 20px rgba(245,166,35,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}
+          >
+            {loading ? (
+              <>
+                <div style={{
+                  width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)",
+                  borderTopColor: "#fff", borderRadius: "50%",
+                  animation: "spin 0.7s linear infinite",
+                }} />
+                Signing in…
+              </>
+            ) : "Sign in"}
+          </button>
         </div>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

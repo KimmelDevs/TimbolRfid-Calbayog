@@ -1,58 +1,64 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 import { CheckCircle2, Wallet, ArrowRight, Zap, Loader2 } from "lucide-react";
 
 function SuccessContent() {
-  const router             = useRouter();
-  const params             = useSearchParams();
-  const { user, refreshProfile } = useAuth();
-  const pollingRef         = useRef(false);
-  const [ready, setReady]  = useState(false);
+  const router  = useRouter();
+  const params  = useSearchParams();
+  const amount  = params.get("amount");
 
-  const amount = params.get("amount");
+  const [ready,          setReady]          = useState(false);
+  const [currentBalance, setCurrentBalance] = useState<number | null>(null);
+  const baseBalanceRef = useRef<number | null>(null);
+  const pollingRef     = useRef(false);
+  const deadlineRef    = useRef(Date.now() + 30_000);
 
   useEffect(() => {
     if (pollingRef.current) return;
     pollingRef.current = true;
 
-    const expectedIncrease = amount ? Number(amount) : 0;
-    const baseBalance      = user?.balance ?? 0;
-    const deadline         = Date.now() + 30_000; // 30s max wait
-
     async function poll() {
-      await refreshProfile().catch(() => {});
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) { setReady(true); return; }
 
-      // Check if balance has increased by the expected amount (or at all)
-      const current = user?.balance ?? 0; // will re-read after refreshProfile updates context
-      if (Date.now() >= deadline) {
-        // Timed out — show ready anyway so user isn't stuck
+      const userId = data.session.user.id;
+
+      // Fetch current balance from DB
+      const { data: profile } = await supabase
+        .from("jeepneyriders")
+        .select("balance")
+        .eq("id", userId)
+        .single();
+
+      const balance = (profile?.balance as number) ?? 0;
+      setCurrentBalance(balance);
+
+      // Record the starting balance on first poll
+      if (baseBalanceRef.current === null) {
+        baseBalanceRef.current = balance;
+      }
+
+      // If balance has increased, the webhook has processed — done
+      if (balance > baseBalanceRef.current) {
         setReady(true);
         return;
       }
 
-      // Re-read from auth context after refresh — schedule next check
-      setTimeout(poll, 2500);
+      // Keep polling until deadline
+      if (Date.now() < deadlineRef.current) {
+        setTimeout(poll, 2500);
+      } else {
+        // Timed out — unblock the UI anyway
+        setReady(true);
+      }
     }
 
-    // Start polling after 1.5s initial delay (give webhook a head start)
-    const start = setTimeout(poll, 1500);
-    return () => clearTimeout(start);
+    // Give the webhook a 1.5s head start before first poll
+    const t = setTimeout(poll, 1500);
+    return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Watch for balance change separately — set ready as soon as it updates
-  const initialBalance = useRef<number | null>(null);
-  useEffect(() => {
-    if (user === null) return;
-    if (initialBalance.current === null) {
-      initialBalance.current = user.balance;
-      return;
-    }
-    if (user.balance !== initialBalance.current) {
-      setReady(true);
-    }
-  }, [user?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{
@@ -111,6 +117,7 @@ function SuccessContent() {
           </div>
         </div>
 
+        {/* Balance status */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
           background: "rgba(34,197,94,0.06)",
@@ -120,9 +127,17 @@ function SuccessContent() {
           justifyContent: "center",
         }}>
           {ready ? (
-            <><Wallet size={16} color="#22c55e" /> Balance updated — ready to ride!</>
+            <>
+              <Wallet size={16} color="#22c55e" />
+              {currentBalance !== null
+                ? `Balance updated — ₱${currentBalance.toFixed(2)} ready to ride!`
+                : "Balance updated — ready to ride!"}
+            </>
           ) : (
-            <><Loader2 size={16} color="#22c55e" style={{ animation: "spin 1s linear infinite" }} /> Updating your balance…</>
+            <>
+              <Loader2 size={16} color="#22c55e" style={{ animation: "spin 1s linear infinite" }} />
+              Waiting for payment confirmation…
+            </>
           )}
         </div>
 
