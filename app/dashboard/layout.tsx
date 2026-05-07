@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
@@ -48,20 +48,14 @@ function LoadingSkeleton() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setTimedOut(true), 10000);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    if (loading && !timedOut) return;
+    if (loading) return;
     if (!user) router.replace("/login");
     else if (user.role === "admin") router.replace("/admin");
-  }, [user, loading, timedOut, router]);
+  }, [user, loading, router]);
 
-  if (loading && !timedOut) return <LoadingSkeleton />;
+  if (loading) return <LoadingSkeleton />;
   if (!user || user.role === "admin") return null;
 
   return (

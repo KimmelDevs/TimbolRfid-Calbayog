@@ -65,53 +65,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const skipFetchForUid = useRef<string | null>(null);
+  // Tracks UIDs where we've already loaded the profile inline (login/signup),
+  // so the auth listener doesn't trigger a redundant fetchProfile.
+  const profileLoadedForUid = useRef<string | null>(null);
 
   useEffect(() => {
-    // First, eagerly restore session from storage — don't wait for the listener
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) {
-        setLoading(false);
-        return;
-      }
-      setSession(session);
-      // If login/signup already set the user, skip the fetch
-      if (skipFetchForUid.current === session.user.id) {
-        skipFetchForUid.current = null;
-        setLoading(false);
-        return;
-      }
-      const profile = await fetchProfile(session.user.id);
-      if (profile) setUser(profile);
-      setLoading(false);
-    });
+    let cancelled = false;
 
-    // Then keep listening for future auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSession(session);
+    // Single source of truth: onAuthStateChange fires immediately with the
+    // current session on mount (INITIAL_SESSION event), so we do NOT also call
+    // getSession() — that caused a double-fetch race where both paths ran
+    // fetchProfile concurrently and set loading=false at different times.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        if (cancelled) return;
 
-      if (!session?.user) {
-        setUser(null);
-        setLoading(false);
-        return;
+        setSession(newSession);
+
+        if (!newSession?.user) {
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        const uid = newSession.user.id;
+
+        // If login() or signup() already fetched the profile for this uid,
+        // skip the fetch — user state is already set correctly.
+        if (profileLoadedForUid.current === uid) {
+          profileLoadedForUid.current = null;
+          setLoading(false);
+          return;
+        }
+
+        if (
+          event === "INITIAL_SESSION" ||
+          event === "SIGNED_IN" ||
+          event === "TOKEN_REFRESHED" ||
+          event === "USER_UPDATED"
+        ) {
+          const profile = await fetchProfile(uid);
+          if (!cancelled) {
+            if (profile) setUser(profile);
+            else setUser(null);
+            setLoading(false);
+          }
+        } else {
+          setLoading(false);
+        }
       }
+    );
 
-      // Skip if getSession already handled this uid
-      if (skipFetchForUid.current === session.user.id) {
-        skipFetchForUid.current = null;
-        setLoading(false);
-        return;
-      }
-
-      // Only re-fetch on meaningful events, not every tick
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-        const profile = await fetchProfile(session.user.id);
-        if (profile) setUser(profile);
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email: string, password: string): Promise<Role | null> => {
@@ -122,16 +130,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    skipFetchForUid.current = data.user.id;
     const profile = await fetchProfile(data.user.id);
 
     if (!profile) {
       console.error("[auth] login: profile not found for", data.user.id);
-      skipFetchForUid.current = null;
       await supabase.auth.signOut();
       return null;
     }
 
+    // Mark uid so the auth listener skips its own fetchProfile call.
+    profileLoadedForUid.current = data.user.id;
     setSession(data.session);
     setUser(profile);
     setLoading(false);
@@ -172,12 +180,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const profile: User = { id: newUser.id, name, email, role, balance: 0 };
 
     if (authData.session) {
-      skipFetchForUid.current = newUser.id;
+      profileLoadedForUid.current = newUser.id;
       setSession(authData.session);
       setUser(profile);
-      setLoading(false);
-    } else {
-      setLoading(false);
     }
 
     return true;
