@@ -17,17 +17,29 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
 
   const isPublic = PUBLIC_PATHS.some(p => pathname.startsWith(p));
 
+  // Fetch role + profile from DB (source of truth) rather than user_metadata
+  async function loadProfile(userId: string, userEmail: string) {
+    const { data } = await supabase
+      .from("jeepneyriders")
+      .select("role, full_name")
+      .eq("id", userId)
+      .single();
+
+    const userRole = (data?.role ?? "resident") as "admin" | "resident";
+    const userName = data?.full_name ?? userEmail.split("@")[0];
+    setRole(userRole);
+    setName(userName);
+    setEmail(userEmail);
+    redirectIfWrongRole(userRole);
+  }
+
   useEffect(() => {
     // getSession() reads from localStorage — instant on refresh, no network needed
     supabase.auth.getSession().then(({ data }) => {
       const session = data.session;
       if (session) {
-        const userRole = (session.user.user_metadata?.role ?? "resident") as "admin" | "resident";
         setAuthed(true);
-        setRole(userRole);
-        setName(session.user.user_metadata?.name ?? session.user.email?.split("@")[0] ?? "");
-        setEmail(session.user.email ?? "");
-        redirectIfWrongRole(userRole);
+        loadProfile(session.user.id, session.user.email ?? "");
       } else {
         setAuthed(false);
         if (!isPublic) router.replace("/login");
@@ -36,12 +48,8 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        const userRole = (session.user.user_metadata?.role ?? "resident") as "admin" | "resident";
         setAuthed(true);
-        setRole(userRole);
-        setName(session.user.user_metadata?.name ?? session.user.email?.split("@")[0] ?? "");
-        setEmail(session.user.email ?? "");
-        redirectIfWrongRole(userRole);
+        loadProfile(session.user.id, session.user.email ?? "");
       } else {
         setAuthed(false);
         setRole(null);
