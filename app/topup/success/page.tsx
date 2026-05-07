@@ -11,53 +11,79 @@ function SuccessContent() {
 
   const [ready,          setReady]          = useState(false);
   const [currentBalance, setCurrentBalance] = useState<number | null>(null);
-  const baseBalanceRef = useRef<number | null>(null);
-  const pollingRef     = useRef(false);
-  const deadlineRef    = useRef(Date.now() + 30_000);
+  const pollingRef  = useRef(false);
+  const deadlineRef = useRef(Date.now() + 30_000);
 
   useEffect(() => {
     if (pollingRef.current) return;
     pollingRef.current = true;
 
+    const expectedTopup = amount ? Number(amount) : 0;
+
+    // Snapshot the balance BEFORE the top-up by reading the DB immediately on
+    // mount, then subtracting the expected amount in case the webhook already ran.
+    // This way we correctly detect completion whether the webhook is fast or slow.
+    let balanceBefore: number | null = null;
+
+    async function init() {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) { setReady(true); return; }
+
+      const { data: profile } = await supabase
+        .from("jeepneyriders")
+        .select("balance")
+        .eq("id", data.session.user.id)
+        .single();
+
+      const currentDb = (profile?.balance as number) ?? 0;
+      setCurrentBalance(currentDb);
+
+      // Reconstruct pre-payment balance: if webhook already ran, current balance
+      // already includes the top-up, so we subtract it to get the true baseline.
+      // If webhook hasn't run yet, this just gives us the current balance.
+      balanceBefore = currentDb - expectedTopup;
+
+      // If balance already reflects the top-up (webhook was instant), done immediately
+      if (expectedTopup > 0 && currentDb >= balanceBefore + expectedTopup) {
+        setReady(true);
+        return;
+      }
+
+      // Otherwise start polling
+      setTimeout(poll, 2000);
+    }
+
     async function poll() {
       const { data } = await supabase.auth.getSession();
       if (!data.session) { setReady(true); return; }
 
-      const userId = data.session.user.id;
-
-      // Fetch current balance from DB
       const { data: profile } = await supabase
         .from("jeepneyriders")
         .select("balance")
-        .eq("id", userId)
+        .eq("id", data.session.user.id)
         .single();
 
       const balance = (profile?.balance as number) ?? 0;
       setCurrentBalance(balance);
 
-      // Record the starting balance on first poll
-      if (baseBalanceRef.current === null) {
-        baseBalanceRef.current = balance;
-      }
+      // Confirm balance has increased by expected amount from baseline
+      const confirmed = balanceBefore !== null
+        ? balance >= balanceBefore + expectedTopup
+        : balance > 0;
 
-      // If balance has increased, the webhook has processed — done
-      if (balance > baseBalanceRef.current) {
+      if (confirmed) {
         setReady(true);
         return;
       }
 
-      // Keep polling until deadline
       if (Date.now() < deadlineRef.current) {
         setTimeout(poll, 2500);
       } else {
-        // Timed out — unblock the UI anyway
-        setReady(true);
+        setReady(true); // timed out — unblock anyway
       }
     }
 
-    // Give the webhook a 1.5s head start before first poll
-    const t = setTimeout(poll, 1500);
-    return () => clearTimeout(t);
+    init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -136,7 +162,7 @@ function SuccessContent() {
           ) : (
             <>
               <Loader2 size={16} color="#22c55e" style={{ animation: "spin 1s linear infinite" }} />
-              Waiting for payment confirmation…
+              Confirming payment…
             </>
           )}
         </div>
