@@ -58,25 +58,38 @@ export default function AdminPage() {
   }, []);
 
   // Fetch dashboard data
-  useEffect(() => {
-    (async () => {
-      const [txRes, resRes, logRes] = await Promise.all([
-        supabase.from("transactions")
-          .select("id,uid,passenger_name,amount,status,lat,lng,timestamp,route")
-          .order("timestamp", { ascending: false }).limit(50),
-        supabase.from("jeepneyriders")
-          .select("id,full_name,email,rfid_uid,balance")
-          .eq("role", "resident").order("full_name"),
-        supabase.from("rfid_logs")
-          .select("id,uid,event,timestamp,status")
-          .order("timestamp", { ascending: false }).limit(8),
-      ]);
-      if (txRes.data)  setTransactions(txRes.data);
-      if (resRes.data) setResidents(resRes.data);
-      if (logRes.data) setLogs(logRes.data);
-      setDataLoading(false);
-    })();
+  const fetchDashboard = useCallback(async () => {
+    const [txRes, resRes, logRes] = await Promise.all([
+      supabase.from("transactions")
+        .select("id,uid,passenger_name,amount,status,lat,lng,timestamp,route")
+        .order("timestamp", { ascending: false }).limit(50),
+      supabase.from("jeepneyriders")
+        .select("id,full_name,email,rfid_uid,balance")
+        .eq("role", "resident").order("full_name"),
+      supabase.from("rfid_logs")
+        .select("id,uid,event,timestamp,status")
+        .order("timestamp", { ascending: false }).limit(8),
+    ]);
+    if (txRes.data)  setTransactions(txRes.data);
+    if (resRes.data) setResidents(resRes.data);
+    if (logRes.data) setLogs(logRes.data);
+    setDataLoading(false);
   }, []);
+
+  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+
+  // Realtime subscription — re-fetch whenever a transaction is inserted
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin_transactions_live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "transactions" },
+        () => { fetchDashboard(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchDashboard]);
 
   // MQTT message handler
   const mqttPublishRef = useRef<((topic: string, msg: string) => void) | null>(null);
@@ -109,12 +122,14 @@ export default function AdminPage() {
         updatedResident = { ...matched, balance: matched.balance - FARE };
 
         await supabase.from("transactions").insert({
-          rfid_uid:      uid,
-          amount:        FARE,
-          status:        "PAID",
-          balance_after: matched.balance - FARE,
-          lat:           parsed.lat ?? null,
-          lng:           parsed.lng ?? null,
+          uid:            uid,
+          passenger_name: matched.full_name,
+          amount:         FARE,
+          status:         "PAID",
+          balance_after:  matched.balance - FARE,
+          lat:            parsed.lat ?? null,
+          lng:            parsed.lng ?? null,
+          route:          "Timbol",
         });
 
         setResidents(prev => prev.map(r =>
@@ -135,12 +150,14 @@ export default function AdminPage() {
       }
     } else {
       await supabase.from("transactions").insert({
-        rfid_uid:      uid,
-        amount:        FARE,
-        status:        "FAILED",
-        balance_after: matched?.balance ?? 0,
-        lat:           parsed.lat ?? null,
-        lng:           parsed.lng ?? null,
+        uid:            uid,
+        passenger_name: matched?.full_name ?? null,
+        amount:         FARE,
+        status:         "FAILED",
+        balance_after:  matched?.balance ?? 0,
+        lat:            parsed.lat ?? null,
+        lng:            parsed.lng ?? null,
+        route:          "Timbol",
       });
     }
 
