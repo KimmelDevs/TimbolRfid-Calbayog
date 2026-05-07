@@ -7,22 +7,52 @@ import { CheckCircle2, Wallet, ArrowRight, Zap, Loader2 } from "lucide-react";
 function SuccessContent() {
   const router             = useRouter();
   const params             = useSearchParams();
-  const { refreshProfile } = useAuth();
-  const refreshed          = useRef(false);
+  const { user, refreshProfile } = useAuth();
+  const pollingRef         = useRef(false);
   const [ready, setReady]  = useState(false);
 
   const amount = params.get("amount");
 
   useEffect(() => {
-    if (refreshed.current) return;
-    refreshed.current = true;
-    // Wait 2s for webhook to process, then refresh balance
-    const timer = setTimeout(async () => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+
+    const expectedIncrease = amount ? Number(amount) : 0;
+    const baseBalance      = user?.balance ?? 0;
+    const deadline         = Date.now() + 30_000; // 30s max wait
+
+    async function poll() {
       await refreshProfile().catch(() => {});
-      setReady(true);
-    }, 2000);
-    return () => clearTimeout(timer);
+
+      // Check if balance has increased by the expected amount (or at all)
+      const current = user?.balance ?? 0; // will re-read after refreshProfile updates context
+      if (Date.now() >= deadline) {
+        // Timed out — show ready anyway so user isn't stuck
+        setReady(true);
+        return;
+      }
+
+      // Re-read from auth context after refresh — schedule next check
+      setTimeout(poll, 2500);
+    }
+
+    // Start polling after 1.5s initial delay (give webhook a head start)
+    const start = setTimeout(poll, 1500);
+    return () => clearTimeout(start);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Watch for balance change separately — set ready as soon as it updates
+  const initialBalance = useRef<number | null>(null);
+  useEffect(() => {
+    if (user === null) return;
+    if (initialBalance.current === null) {
+      initialBalance.current = user.balance;
+      return;
+    }
+    if (user.balance !== initialBalance.current) {
+      setReady(true);
+    }
+  }, [user?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{
