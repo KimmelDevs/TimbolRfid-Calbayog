@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { useMqtt } from "@/lib/UseMqtt";
 import {
   Users, TrendingUp, CheckCircle2, XCircle, ArrowRight,
@@ -56,23 +56,20 @@ export default function AdminPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Fetch dashboard data
+  // Fetch dashboard data via server-side API (uses service-role key to bypass RLS)
   const fetchDashboard = useCallback(async () => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayIso = todayStart.toISOString();
 
     const [recentRes, todayRes, resRes] = await Promise.all([
-      // 5 most recent transactions for the table
-      supabase.from("fare")
+      supabaseAdmin.from("fare")
         .select("id,rfid_uid,passenger_name,amount,status,lat,lng,created_at,route")
         .order("created_at", { ascending: false }).limit(5),
-      // today's transactions for stats — only amount and status needed
-      supabase.from("fare")
+      supabaseAdmin.from("fare")
         .select("amount,status")
         .gte("created_at", todayIso),
-      // all residents
-      supabase.from("jeepneyriders")
+      supabaseAdmin.from("jeepneyriders")
         .select("id,full_name,email,rfid_uid,balance")
         .eq("role", "resident").order("full_name"),
     ]);

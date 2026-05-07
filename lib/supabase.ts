@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = "https://kkpryrqirierlovvafnl.supabase.co";
+const supabaseAnon = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcHJ5cnFpcmllcmxvdnZhZm5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzkyNTMsImV4cCI6MjA5MjI1NTI1M30.vxYbej1g4ctlnHeOvbMJXhfqnCeOuaYaCD7C5NjIslg";
+const supabaseServiceRole = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcHJ5cnFpcmllcmxvdnZhZm5sIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjY3OTI1MywiZXhwIjoyMDkyMjU1MjUzfQ.DJvpt2XZ41jWFAErDDzAyeeMiSXrCxkIgywm4NHlgeA";
 
 export const supabase = createClient(supabaseUrl, supabaseAnon);
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole);
