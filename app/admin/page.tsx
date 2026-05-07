@@ -112,8 +112,6 @@ export default function AdminPage() {
   }, [fetchDashboard]);
 
   // MQTT message handler
-  const mqttPublishRef = useRef<((topic: string, msg: string) => void) | null>(null);
-
   const handleMqttMessage = useCallback(async (payload: string) => {
     let parsed: { uid?: string; lat?: number; lng?: number } = {};
     try { parsed = JSON.parse(payload); } catch { return; }
@@ -121,40 +119,73 @@ export default function AdminPage() {
     if (!uid) return;
 
     const now = new Date().toISOString();
+    const FARE = 10;
 
-    // All DB work (lookup + deduct + insert) handled server-side via API route
-    const res  = await fetch("/api/scan", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ uid, lat: parsed.lat, lng: parsed.lng }),
-    });
-    const data = await res.json();
+    // Look up rider directly from jeepneyriders (same approach as reference)
+    const { data: matched } = await supabase
+      .from("jeepneyriders")
+      .select("id,full_name,email,rfid_uid,balance")
+      .eq("rfid_uid", uid)
+      .maybeSingle();
 
-    const status: "PAID" | "FAILED" = data.status === "PAID" ? "PAID" : "FAILED";
-    const resident: Resident | null = data.resident
-      ? { id: data.resident.id, full_name: data.resident.full_name, email: data.resident.email ?? "", rfid_uid: uid, balance: data.resident.balance }
-      : null;
+    let status: "PAID" | "FAILED" = "FAILED";
+    let updatedResident = matched ?? null;
 
-    if (status === "PAID" && resident) {
-      setResidents(prev => prev.map(r =>
-        r.rfid_uid === uid ? { ...r, balance: resident.balance } : r
-      ));
-      setRecentTx(prev => [{
-        id:             crypto.randomUUID(),
-        uid,
-        passenger_name: resident.full_name,
-        amount:         10,
-        status:         "PAID" as const,
-        lat:            parsed.lat ?? 0,
-        lng:            parsed.lng ?? 0,
-        timestamp:      now,
+    if (matched && matched.balance >= FARE) {
+      const { error: deductErr } = await supabase
+        .from("jeepneyriders")
+        .update({ balance: matched.balance - FARE })
+        .eq("id", matched.id);
+
+      if (!deductErr) {
+        status = "PAID";
+        updatedResident = { ...matched, balance: matched.balance - FARE };
+
+        await supabase.from("transactions").insert({
+          rfid_uid:       uid,
+          amount:         FARE,
+          status:         "PAID",
+          balance_after:  matched.balance - FARE,
+          passenger_name: matched.full_name,
+          lat:            parsed.lat ?? null,
+          lng:            parsed.lng ?? null,
+          route:          "Timbol",
+          timestamp:      now,
+        });
+
+        setResidents(prev => prev.map(r =>
+          r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
+        ));
+        setRecentTx(prev => [{
+          id:             crypto.randomUUID(),
+          uid,
+          passenger_name: matched.full_name,
+          amount:         FARE,
+          status:         "PAID" as const,
+          lat:            parsed.lat ?? 0,
+          lng:            parsed.lng ?? 0,
+          timestamp:      now,
+          route:          "Timbol",
+        }, ...prev].slice(0, 5));
+        setTodayPaid(p => p + 1);
+        setTodayRevenue(r => r + FARE);
+      }
+    } else {
+      await supabase.from("transactions").insert({
+        rfid_uid:       uid,
+        amount:         FARE,
+        status:         "FAILED",
+        balance_after:  matched?.balance ?? 0,
+        passenger_name: matched?.full_name ?? null,
+        lat:            parsed.lat ?? null,
+        lng:            parsed.lng ?? null,
         route:          "Timbol",
-      }, ...prev].slice(0, 5));
-      setTodayPaid(p => p + 1);
-      setTodayRevenue(r => r + 10);
+        timestamp:      now,
+      });
+      setTodayFailed(f => f + 1);
     }
 
-    const scan: LiveScan = { uid, lat: parsed.lat, lng: parsed.lng, timestamp: now, resident, status };
+    const scan: LiveScan = { uid, lat: parsed.lat, lng: parsed.lng, timestamp: now, resident: updatedResident, status };
     setLastScan(scan);
     setLiveScans(prev => [scan, ...prev].slice(0, 20));
     setScanFlash(true);
