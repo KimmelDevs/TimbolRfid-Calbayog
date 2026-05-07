@@ -18,9 +18,6 @@ interface Transaction {
 interface Resident {
   id: string; full_name: string; email: string; rfid_uid: string | null; balance: number;
 }
-interface LogEntry {
-  id: string; uid: string; event: string; timestamp: string; status: "success" | "error" | "info";
-}
 interface LiveScan {
   uid: string; lat?: number; lng?: number; timestamp: string; resident: Resident | null; status: "PAID" | "FAILED";
 }
@@ -41,7 +38,6 @@ function timeAgo(iso: string) {
 export default function AdminPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [residents,    setResidents]    = useState<Resident[]>([]);
-  const [logs,         setLogs]         = useState<LogEntry[]>([]);
   const [dataLoading,  setDataLoading]  = useState(true);
 
   // Scanner state
@@ -59,36 +55,39 @@ export default function AdminPage() {
 
   // Fetch dashboard data
   const fetchDashboard = useCallback(async () => {
-    const [txRes, resRes, logRes] = await Promise.all([
+    const [txRes, resRes] = await Promise.all([
       supabase.from("transactions")
         .select("id,uid,passenger_name,amount,status,lat,lng,timestamp,route")
         .order("timestamp", { ascending: false }).limit(50),
       supabase.from("jeepneyriders")
         .select("id,full_name,email,rfid_uid,balance")
         .eq("role", "resident").order("full_name"),
-      supabase.from("rfid_logs")
-        .select("id,uid,event,timestamp,status")
-        .order("timestamp", { ascending: false }).limit(8),
     ]);
     if (txRes.data)  setTransactions(txRes.data);
     if (resRes.data) setResidents(resRes.data);
-    if (logRes.data) setLogs(logRes.data);
     setDataLoading(false);
   }, []);
 
   useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
 
-  // Realtime subscription — re-fetch whenever a transaction is inserted
+  // Realtime — debounced so it doesn't race with optimistic local state from MQTT
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const channel = supabase
       .channel("admin_transactions_live")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "transactions" },
-        () => { fetchDashboard(); }
+        () => {
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(() => { fetchDashboard(); }, 1500);
+        }
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [fetchDashboard]);
 
   // MQTT message handler
@@ -461,39 +460,9 @@ export default function AdminPage() {
       </div>
       {/* ══ END SCANNER ════════════════════════════════════════════════════ */}
 
-      {/* Logs + Residents */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 20, marginBottom: 24 }}>
+      {/* Residents */}
+      <div style={{ marginBottom: 24 }}>
         <div className="fade-up delay-2" style={cardStyle}>
-          {sectionHead("Live Logs", "/admin/logs")}
-          {dataLoading
-            ? Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} style={{ padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.03)", display: "flex", gap: 12 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.06)", marginTop: 4, flexShrink: 0 }}/>
-                  <div style={{ flex: 1, height: 13, background: "rgba(255,255,255,0.04)", borderRadius: 4, animation: "pulse 1.5s ease infinite" }}/>
-                </div>
-              ))
-            : logs.length === 0
-              ? <div style={{ padding: "32px 20px", textAlign: "center", color: "#6b7280", fontSize: 13 }}>No logs yet.</div>
-              : logs.map(log => (
-                  <div key={log.id} style={{ padding: "11px 20px", display: "flex", gap: 12, alignItems: "flex-start", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                    <div style={{
-                      width: 8, height: 8, borderRadius: "50%", marginTop: 5, flexShrink: 0,
-                      background: log.status === "success" ? "#22c55e" : log.status === "error" ? "#ef4444" : "#3b82f6",
-                      boxShadow: `0 0 5px ${log.status === "success" ? "rgba(34,197,94,0.5)" : log.status === "error" ? "rgba(239,68,68,0.5)" : "rgba(59,130,246,0.5)"}`,
-                    }}/>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>{log.uid}</div>
-                      <div style={{
-                        fontSize: 12, fontFamily: "monospace", lineHeight: 1.4, wordBreak: "break-word",
-                        color: log.status === "success" ? "#d1fae5" : log.status === "error" ? "#fee2e2" : "#dbeafe",
-                      }}>{log.event}</div>
-                    </div>
-                  </div>
-                ))
-          }
-        </div>
-
-        <div className="fade-up delay-3" style={cardStyle}>
           {sectionHead("Resident Balances", "/admin/residents")}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
