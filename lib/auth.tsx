@@ -65,16 +65,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Tracks the user ID that the caller already hydrated so onAuthStateChange
-  // skips a redundant fetchProfile for that specific event.
   const skipFetchForUid = useRef<string | null>(null);
 
   useEffect(() => {
-    // Restore session on mount/refresh — run getSession and the listener
-    // in parallel so whichever resolves first can set state.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // First, eagerly restore session from storage — don't wait for the listener
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
+      setSession(session);
+      // If login/signup already set the user, skip the fetch
+      if (skipFetchForUid.current === session.user.id) {
+        skipFetchForUid.current = null;
+        setLoading(false);
+        return;
+      }
+      const profile = await fetchProfile(session.user.id);
+      if (profile) setUser(profile);
+      setLoading(false);
+    });
+
+    // Then keep listening for future auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
 
       if (!session?.user) {
@@ -83,34 +96,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Skip if the caller (login/signup) already set the user for this uid
+      // Skip if getSession already handled this uid
       if (skipFetchForUid.current === session.user.id) {
         skipFetchForUid.current = null;
         setLoading(false);
         return;
       }
 
-      const profile = await fetchProfile(session.user.id);
-      if (profile) setUser(profile);
-      setLoading(false);
-    });
-
-    // getSession handles the initial page-load case (stored token).
-    // onAuthStateChange also fires INITIAL_SESSION, so we only need
-    // getSession to cover environments where that event doesn't fire.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) setLoading(false);
-      // If there IS a session, onAuthStateChange will handle it.
+      // Only re-fetch on meaningful events, not every tick
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        const profile = await fetchProfile(session.user.id);
+        if (profile) setUser(profile);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email: string, password: string): Promise<Role | null> => {
-    // Run auth + profile fetch in parallel:
-    // signInWithPassword returns the user id, then we fetch the profile.
-    // We can't truly parallelize these two since we need the uid first,
-    // but we CAN tell onAuthStateChange to skip its own fetchProfile call.
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error || !data.user) {
@@ -118,7 +122,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    // Fetch profile while we mark the uid to skip in the listener
     skipFetchForUid.current = data.user.id;
     const profile = await fetchProfile(data.user.id);
 
@@ -131,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setSession(data.session);
     setUser(profile);
+    setLoading(false);
     return profile.role;
   };
 
@@ -149,8 +153,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const newUser = authData.user;
 
-    // Run the DB insert. We already have all the data we need locally —
-    // no need for a fetchProfile round-trip after this succeeds.
     const { error: dbError } = await supabase.from("jeepneyriders").insert({
       id:        newUser.id,
       full_name: name,
@@ -167,18 +169,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    // Build the user object locally — zero extra network calls
     const profile: User = { id: newUser.id, name, email, role, balance: 0 };
 
     if (authData.session) {
-      // Email confirmation OFF → session exists immediately, set state now
-      // and tell the onAuthStateChange listener to skip its own fetchProfile
       skipFetchForUid.current = newUser.id;
       setSession(authData.session);
       setUser(profile);
+      setLoading(false);
     } else {
-      // Email confirmation ON → no session yet, Supabase will send a confirm email.
-      // Just mark loading as done so the UI doesn't spin forever.
       setLoading(false);
     }
 
@@ -192,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
     const profile = await fetchProfile(session.user.id);
     if (profile) setUser(profile);
