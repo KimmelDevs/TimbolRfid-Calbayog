@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { CheckCircle2, Wallet, ArrowRight, Zap } from "lucide-react";
 
-export default function TopUpSuccessPage() {
+function SuccessContent() {
   const router             = useRouter();
   const params             = useSearchParams();
   const { refreshProfile } = useAuth();
@@ -15,7 +15,6 @@ export default function TopUpSuccessPage() {
   useEffect(() => {
     if (refreshed.current) return;
     refreshed.current = true;
-    // Fire and forget — refresh balance in background
     refreshProfile().catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -49,7 +48,6 @@ export default function TopUpSuccessPage() {
         display: "flex", flexDirection: "column", alignItems: "center",
         textAlign: "center", gap: 22,
       }}>
-        {/* Success icon */}
         <div style={{
           width: 80, height: 80, borderRadius: 24,
           background: "rgba(34,197,94,0.12)",
@@ -121,5 +119,21 @@ export default function TopUpSuccessPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function TopUpSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div style={{
+        minHeight: "100vh", background: "#0c0f14",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <div style={{ width: 40, height: 40, border: "3px solid rgba(245,166,35,0.3)", borderTopColor: "#f5a623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    }>
+      <SuccessContent />
+    </Suspense>
   );
 }
