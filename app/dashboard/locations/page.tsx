@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { MapPin, ExternalLink, AlertCircle, Navigation } from "lucide-react";
 
 interface Transaction {
@@ -10,7 +10,7 @@ interface Transaction {
   status: "PAID" | "FAILED";
   lat: number;
   lng: number;
-  timestamp: string;
+  created_at: string;
   route: string;
 }
 
@@ -21,7 +21,7 @@ function formatDateTime(iso: string) {
   });
 }
 
-export default function LocationssPage() {
+export default function LocationsPage() {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,13 +30,13 @@ export default function LocationssPage() {
   useEffect(() => {
     if (!user?.rfidUid) { setLoading(false); return; }
     (async () => {
-      const { data, error: dbErr } = await supabase
-        .from("transactions")
-        .select("id, amount, status, lat, lng, timestamp, route")
-        .eq("uid", user.rfidUid)
+      const { data, error: dbErr } = await supabaseAdmin
+        .from("fare")
+        .select("id, amount, status, lat, lng, created_at, route")
+        .eq("rfid_uid", user.rfidUid)
         .not("lat", "is", null)
         .not("lng", "is", null)
-        .order("timestamp", { ascending: false });
+        .order("created_at", { ascending: false });
       if (dbErr) setError(dbErr.message);
       else setTransactions(data ?? []);
       setLoading(false);
@@ -74,14 +74,10 @@ export default function LocationssPage() {
         </div>
       )}
 
-      {/* Skeleton loading */}
       {loading && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
           {[1, 2, 3, 4].map(i => (
-            <div key={i} style={{
-              background: "#181d2a", border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
+            <div key={i} style={{ background: "#181d2a", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ height: 140, background: "rgba(255,255,255,0.03)", animation: "pulse 1.5s ease infinite" }} />
               <div style={{ padding: "16px 18px" }}>
                 <div style={{ height: 14, background: "rgba(255,255,255,0.05)", borderRadius: 4, marginBottom: 8, animation: "pulse 1.5s ease infinite" }} />
@@ -92,7 +88,6 @@ export default function LocationssPage() {
         </div>
       )}
 
-      {/* Empty state */}
       {!loading && transactions.length === 0 && user?.rfidUid && (
         <div style={{
           background: "#181d2a", border: "1px solid rgba(255,255,255,0.06)",
@@ -104,7 +99,6 @@ export default function LocationssPage() {
         </div>
       )}
 
-      {/* Location grid */}
       {!loading && transactions.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
           {transactions.map((tx, i) => (
@@ -112,38 +106,30 @@ export default function LocationssPage() {
               background: "#181d2a", border: "1px solid rgba(255,255,255,0.06)",
               borderRadius: 12, overflow: "hidden",
             }}>
-              {/* Map tile — uses OpenStreetMap static-style embed via iframe */}
-              <div style={{
-                height: 140, position: "relative", overflow: "hidden",
-                background: "linear-gradient(135deg,#1e2435,#252d40)",
-              }}>
+              <div style={{ height: 140, position: "relative", overflow: "hidden", background: "linear-gradient(135deg,#1e2435,#252d40)" }}>
                 <iframe
                   title={`map-${tx.id}`}
-                  width="100%"
-                  height="140"
+                  width="100%" height="140"
                   style={{ border: "none", display: "block", opacity: 0.85 }}
                   src={`https://www.openstreetmap.org/export/embed.html?bbox=${tx.lng - 0.005},${tx.lat - 0.005},${tx.lng + 0.005},${tx.lat + 0.005}&layer=mapnik&marker=${tx.lat},${tx.lng}`}
                   loading="lazy"
                 />
-                {/* Status badge overlay */}
                 <div style={{
                   position: "absolute", top: 10, right: 10,
                   padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700,
                   background: tx.status === "PAID" ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)",
-                  color: "#fff", fontFamily: "Syne,sans-serif",
-                  backdropFilter: "blur(4px)",
+                  color: "#fff", fontFamily: "Syne,sans-serif", backdropFilter: "blur(4px)",
                 }}>
                   {tx.status}
                 </div>
               </div>
-
               <div style={{ padding: "16px 18px" }}>
                 <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{tx.route}</div>
                 <div style={{ fontFamily: "monospace", fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
                   {tx.lat.toFixed(6)}, {tx.lng.toFixed(6)}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.timestamp)}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.created_at)}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{
                       fontSize: 13, fontWeight: 700, fontFamily: "Syne,sans-serif",
@@ -170,9 +156,7 @@ export default function LocationssPage() {
         </div>
       )}
 
-      <style>{`
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-      `}</style>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
     </div>
   );
 }
