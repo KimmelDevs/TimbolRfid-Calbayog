@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useMqtt } from "@/lib/UseMqtt";
 import {
@@ -22,7 +22,7 @@ interface LogEntry {
   id: string; uid: string; event: string; timestamp: string; status: "success" | "error" | "info";
 }
 interface LiveScan {
-  uid: string; lat?: number; lng?: number; timestamp: string; resident: Resident | null;
+  uid: string; lat?: number; lng?: number; timestamp: string; resident: Resident | null; status: "PAID" | "FAILED";
 }
 
 function formatDateTime(iso: string) {
@@ -79,6 +79,8 @@ export default function AdminPage() {
   }, []);
 
   // MQTT message handler
+  const mqttPublishRef = useRef<((topic: string, msg: string) => void) | null>(null);
+
   const handleMqttMessage = useCallback(async (payload: string) => {
     let parsed: { uid?: string; lat?: number; lng?: number } = {};
     try { parsed = JSON.parse(payload); } catch { return; }
@@ -91,12 +93,68 @@ export default function AdminPage() {
       .eq("rfid_uid", uid)
       .maybeSingle();
 
+    const now = new Date().toISOString();
+    const FARE = 10;
+    let status: "PAID" | "FAILED" = "FAILED";
+    let updatedResident = matched ?? null;
+
+    if (matched && matched.balance >= FARE) {
+      const { error: deductErr } = await supabase
+        .from("jeepneyriders")
+        .update({ balance: matched.balance - FARE })
+        .eq("id", matched.id);
+
+      if (!deductErr) {
+        status = "PAID";
+        updatedResident = { ...matched, balance: matched.balance - FARE };
+
+        await supabase.from("transactions").insert({
+          uid,
+          passenger_name: matched.full_name,
+          amount:         FARE,
+          status:         "PAID",
+          lat:            parsed.lat ?? null,
+          lng:            parsed.lng ?? null,
+          timestamp:      now,
+          route:          "Timbol",
+        });
+
+        setResidents(prev => prev.map(r =>
+          r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
+        ));
+
+        setTransactions(prev => [{
+          id:             crypto.randomUUID(),
+          uid,
+          passenger_name: matched.full_name,
+          amount:         FARE,
+          status:         "PAID",
+          lat:            parsed.lat ?? 0,
+          lng:            parsed.lng ?? 0,
+          timestamp:      now,
+          route:          "Timbol",
+        }, ...prev]);
+      }
+    } else {
+      await supabase.from("transactions").insert({
+        uid,
+        passenger_name: matched?.full_name ?? "Unknown",
+        amount:         FARE,
+        status:         "FAILED",
+        lat:            parsed.lat ?? null,
+        lng:            parsed.lng ?? null,
+        timestamp:      now,
+        route:          "Timbol",
+      });
+    }
+
     const scan: LiveScan = {
       uid,
-      lat: parsed.lat,
-      lng: parsed.lng,
-      timestamp: new Date().toISOString(),
-      resident: matched ?? null,
+      lat:       parsed.lat,
+      lng:       parsed.lng,
+      timestamp: now,
+      resident:  updatedResident,
+      status,
     };
 
     setLastScan(scan);
@@ -265,10 +323,10 @@ export default function AdminPage() {
                       fontSize: 11, fontWeight: 700, fontFamily: "Syne,sans-serif",
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       padding: "3px 8px", borderRadius: 5,
-                      background: lastScan.resident ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-                      color: lastScan.resident ? "#22c55e" : "#ef4444",
+                      background: lastScan.status === "PAID" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                      color: lastScan.status === "PAID" ? "#22c55e" : "#ef4444",
                     }}>
-                      {lastScan.resident ? "REGISTERED" : "UNREGISTERED"}
+                      {lastScan.status === "PAID" ? "✓ PAID — ₱10 deducted" : lastScan.resident ? "✗ LOW BALANCE" : "✗ UNREGISTERED"}
                     </span>
                     <span style={{ fontSize: 12, color: "#6b7280" }}>{timeAgo(lastScan.timestamp)}</span>
                   </div>
@@ -373,7 +431,7 @@ export default function AdminPage() {
                     background: i === 0 ? "rgba(34,197,94,0.04)" : "transparent",
                     transition: "background 0.6s",
                   }}>
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: scan.resident ? "#22c55e" : "#ef4444" }}/>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: scan.status === "PAID" ? "#22c55e" : "#ef4444" }}/>
                     <span style={{ fontFamily: "monospace", fontSize: 13, color: scan.resident ? "#f5a623" : "#ef4444", letterSpacing: "0.06em", flexShrink: 0 }}>
                       {scan.uid}
                     </span>
