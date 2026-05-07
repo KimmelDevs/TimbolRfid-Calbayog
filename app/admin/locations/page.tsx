@@ -152,9 +152,8 @@ export default function AdminLocationsPage() {
                         title={`map-${tx.id}`}
                         width="100%" height="130"
                         style={{ border: "none", display: "block", opacity: 0.85 }}
-                        src={`https://maps.google.com/maps?q=${tx.lat},${tx.lng}&z=15&output=embed`}
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${tx.lng - 0.005},${tx.lat - 0.005},${tx.lng + 0.005},${tx.lat + 0.005}&layer=mapnik&marker=${tx.lat},${tx.lng}`}
                         loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
                       />
                       <div style={{
                         position: "absolute", top: 8, right: 8,
@@ -172,7 +171,7 @@ export default function AdminLocationsPage() {
                       <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>{tx.lat.toFixed(6)}, {tx.lng.toFixed(6)}</div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ fontSize: 11, color: "#6b7280" }}>{formatDateTime(tx.timestamp)}</div>
-                        <a href={`https://www.google.com/maps?q=${tx.lat},${tx.lng}`} target="_blank" rel="noopener noreferrer" style={{
+                        <a href={`https://www.openstreetmap.org/?mlat=${tx.lat}&mlon=${tx.lng}#map=15/${tx.lat}/${tx.lng}`} target="_blank" rel="noopener noreferrer" style={{
                           display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#3b82f6",
                           textDecoration: "none", padding: "4px 8px", background: "rgba(59,130,246,0.1)", borderRadius: 5,
                         }}>
@@ -234,7 +233,7 @@ export default function AdminLocationsPage() {
                           </td>
                           <td style={{ padding: "13px 16px", fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.timestamp)}</td>
                           <td style={{ padding: "13px 16px" }}>
-                            <a href={`https://www.google.com/maps?q=${tx.lat},${tx.lng}`} target="_blank" rel="noopener noreferrer" style={{
+                            <a href={`https://www.openstreetmap.org/?mlat=${tx.lat}&mlon=${tx.lng}#map=15/${tx.lat}/${tx.lng}`} target="_blank" rel="noopener noreferrer" style={{
                               display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#3b82f6", textDecoration: "none",
                             }}>
                               <MapPin size={13}/> Map <ExternalLink size={11}/>

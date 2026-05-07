@@ -122,9 +122,8 @@ export default function LocationsPage() {
                   width="100%"
                   height="140"
                   style={{ border: "none", display: "block", opacity: 0.85 }}
-                  src={`https://maps.google.com/maps?q=${tx.lat},${tx.lng}&z=15&output=embed`}
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${tx.lng - 0.005},${tx.lat - 0.005},${tx.lng + 0.005},${tx.lat + 0.005}&layer=mapnik&marker=${tx.lat},${tx.lng}`}
                   loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
                 />
                 {/* Status badge overlay */}
                 <div style={{
@@ -153,7 +152,7 @@ export default function LocationsPage() {
                       {tx.status === "PAID" ? `₱${tx.amount}` : "FAILED"}
                     </span>
                     <a
-                      href={`https://www.google.com/maps?q=${tx.lat},${tx.lng}`}
+                      href={`https://www.openstreetmap.org/?mlat=${tx.lat}&mlon=${tx.lng}#map=15/${tx.lat}/${tx.lng}`}
                       target="_blank" rel="noopener noreferrer"
                       style={{
                         display: "flex", alignItems: "center", gap: 5,
