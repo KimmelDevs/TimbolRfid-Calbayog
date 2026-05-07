@@ -109,14 +109,10 @@ export default function AdminPage() {
         updatedResident = { ...matched, balance: matched.balance - FARE };
 
         await supabase.from("transactions").insert({
-          uid,
-          passenger_name: matched.full_name,
-          amount:         FARE,
-          status:         "PAID",
-          lat:            parsed.lat ?? null,
-          lng:            parsed.lng ?? null,
-          timestamp:      now,
-          route:          "Timbol",
+          rfid_uid:      uid,
+          amount:        FARE,
+          status:        "PAID",
+          balance_after: matched.balance - FARE,
         });
 
         setResidents(prev => prev.map(r =>
@@ -137,14 +133,10 @@ export default function AdminPage() {
       }
     } else {
       await supabase.from("transactions").insert({
-        uid,
-        passenger_name: matched?.full_name ?? "Unknown",
-        amount:         FARE,
-        status:         "FAILED",
-        lat:            parsed.lat ?? null,
-        lng:            parsed.lng ?? null,
-        timestamp:      now,
-        route:          "Timbol",
+        rfid_uid:      uid,
+        amount:        FARE,
+        status:        "FAILED",
+        balance_after: matched?.balance ?? 0,
       });
     }
 
