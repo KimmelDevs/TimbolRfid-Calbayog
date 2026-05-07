@@ -21,7 +21,7 @@ function formatDateTime(iso: string) {
   });
 }
 
-export default function LocationsPage() {
+export default function LocationssPage() {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);

@@ -43,20 +43,17 @@ export default function AdminPage() {
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [dataLoading,  setDataLoading]  = useState(true);
 
-  // Scanner state
   const [scanActive, setScanActive] = useState(false);
   const [liveScans,  setLiveScans]  = useState<LiveScan[]>([]);
   const [lastScan,   setLastScan]   = useState<LiveScan | null>(null);
   const [scanFlash,  setScanFlash]  = useState(false);
 
-  // Tick for time-ago labels
   const [, setTicker] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTicker(v => v + 1), 10_000);
     return () => clearInterval(t);
   }, []);
 
-  // Fetch dashboard data via server-side API (uses service-role key to bypass RLS)
   const fetchDashboard = useCallback(async () => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -88,19 +85,14 @@ export default function AdminPage() {
 
   useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
 
-  // Realtime — debounced so it doesn't race with optimistic local state from MQTT
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const channel = supabase
       .channel("admin_fare_live")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "fare" },
-        () => {
-          if (debounceRef.current) clearTimeout(debounceRef.current);
-          debounceRef.current = setTimeout(() => { fetchDashboard(); }, 1500);
-        }
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "fare" }, () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => { fetchDashboard(); }, 1500);
+      })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -108,7 +100,6 @@ export default function AdminPage() {
     };
   }, [fetchDashboard]);
 
-  // MQTT message handler
   const handleMqttMessage = useCallback(async (payload: string) => {
     let parsed: { uid?: string; lat?: number; lng?: number } = {};
     try { parsed = JSON.parse(payload); } catch { return; }
@@ -119,7 +110,7 @@ export default function AdminPage() {
     const FARE = 10;
 
     const res  = await fetch("/api/fare", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ uid, lat: parsed.lat, lng: parsed.lng }),
     });
@@ -159,24 +150,11 @@ export default function AdminPage() {
     setTimeout(() => setScanFlash(false), 700);
   }, []);
 
-  // useMqtt now returns real status
   const { status: mqttStatus } = useMqtt({
     topic: RFID_TOPIC,
     onMessage: handleMqttMessage,
     enabled: scanActive,
   });
-
-  // Derived stats come from today's server-side query
-
-  const skeletonRow = (cols: number) => (
-    <tr>
-      {Array.from({ length: cols }).map((_, i) => (
-        <td key={i} style={{ padding: "14px 16px" }}>
-          <div style={{ height: 13, background: "rgba(255,255,255,0.05)", borderRadius: 4, animation: "pulse 1.5s ease infinite" }} />
-        </td>
-      ))}
-    </tr>
-  );
 
   const cardStyle = {
     background: "#181d2a",
@@ -195,9 +173,9 @@ export default function AdminPage() {
   );
 
   const mqttDotColor =
-    mqttStatus === "connected"   ? "#22c55e" :
-    mqttStatus === "connecting"  ? "#f5a623" :
-    mqttStatus === "error"       ? "#ef4444" : "#4b5563";
+    mqttStatus === "connected"  ? "#22c55e" :
+    mqttStatus === "connecting" ? "#f5a623" :
+    mqttStatus === "error"      ? "#ef4444" : "#4b5563";
 
   const mqttLabel =
     mqttStatus === "connected"  ? `Connected · topic: ${RFID_TOPIC}` :
@@ -224,7 +202,7 @@ export default function AdminPage() {
         <StatCard label="Failed Taps"     value={dataLoading ? "—" : String(todayFailed)} sub="Errors / low balance" icon={<XCircle size={18}/>} delay={4}/>
       </div>
 
-      {/* ══ LIVE RFID SCANNER ══════════════════════════════════════════════ */}
+      {/* LIVE SCANNER */}
       <div className="fade-up delay-1" style={{
         background: scanActive ? "linear-gradient(135deg,#111827,#0d1a12)" : "#181d2a",
         border: `1px solid ${scanActive ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)"}`,
@@ -232,7 +210,6 @@ export default function AdminPage() {
         transition: "border 0.4s, background 0.4s",
         boxShadow: scanActive ? "0 0 40px rgba(34,197,94,0.06)" : "none",
       }}>
-        {/* Panel header */}
         <div style={{
           padding: "18px 24px",
           borderBottom: `1px solid ${scanActive ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)"}`,
@@ -259,7 +236,6 @@ export default function AdminPage() {
               </div>
             </div>
           </div>
-
           <button onClick={() => setScanActive(v => !v)} style={{
             display: "flex", alignItems: "center", gap: 8,
             padding: "10px 20px", borderRadius: 9,
@@ -274,10 +250,7 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* Scanner body */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-
-          {/* Left — scan result */}
           <div style={{
             padding: "28px",
             borderRight: `1px solid ${scanActive ? "rgba(34,197,94,0.1)" : "rgba(255,255,255,0.04)"}`,
@@ -298,7 +271,6 @@ export default function AdminPage() {
               </div>
             ) : lastScan ? (
               <div style={{ width: "100%", animation: scanFlash ? "flash-in 0.4s ease" : "none" }}>
-                {/* UID card */}
                 <div style={{
                   background: lastScan.resident
                     ? "linear-gradient(135deg,rgba(34,197,94,0.1),rgba(34,197,94,0.04))"
@@ -324,8 +296,6 @@ export default function AdminPage() {
                     <span style={{ fontSize: 12, color: "#6b7280" }}>{timeAgo(lastScan.created_at)}</span>
                   </div>
                 </div>
-
-                {/* Resident detail */}
                 {lastScan.resident ? (
                   <div style={{
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
@@ -343,9 +313,7 @@ export default function AdminPage() {
                         color: lastScan.resident.balance < 20 ? "#ef4444" : "#22c55e",
                       }}>
                         ₱{lastScan.resident.balance.toFixed(2)}
-                        {lastScan.resident.balance < 20 && (
-                          <span style={{ fontSize: 11, marginLeft: 6 }}> LOW</span>
-                        )}
+                        {lastScan.resident.balance < 20 && <span style={{ fontSize: 11, marginLeft: 6 }}>LOW</span>}
                       </div>
                     </div>
                     <div>
@@ -375,7 +343,6 @@ export default function AdminPage() {
                 )}
               </div>
             ) : (
-              // Waiting for first tap
               <div style={{ textAlign: "center" }}>
                 <div style={{
                   width: 80, height: 80, borderRadius: "50%",
@@ -396,7 +363,6 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* Right — scan feed */}
           <div>
             <div style={{
               padding: "14px 20px",
@@ -439,7 +405,6 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
-      {/* ══ END SCANNER ════════════════════════════════════════════════════ */}
 
       {/* Residents */}
       <div style={{ marginBottom: 24 }}>
@@ -456,7 +421,15 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {dataLoading
-                  ? Array.from({ length: 5 }).map((_, i) => skeletonRow(4))
+                  ? Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={`skel-res-${i}`}>
+                        {Array.from({ length: 4 }).map((_, j) => (
+                          <td key={j} style={{ padding: "14px 16px" }}>
+                            <div style={{ height: 13, background: "rgba(255,255,255,0.05)", borderRadius: 4, animation: "pulse 1.5s ease infinite" }}/>
+                          </td>
+                        ))}
+                      </tr>
+                    ))
                   : residents.slice(0, 8).map(r => {
                       const s = !r.rfid_uid ? "inactive" : r.balance < 20 ? "low" : "active";
                       return (
@@ -496,7 +469,15 @@ export default function AdminPage() {
             </thead>
             <tbody>
               {dataLoading
-                ? Array.from({ length: 5 }).map((_, i) => skeletonRow(6))
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={`skel-tx-${i}`}>
+                      {Array.from({ length: 6 }).map((_, j) => (
+                        <td key={j} style={{ padding: "14px 16px" }}>
+                          <div style={{ height: 13, background: "rgba(255,255,255,0.05)", borderRadius: 4, animation: "pulse 1.5s ease infinite" }}/>
+                        </td>
+                      ))}
+                    </tr>
+                  ))
                 : recentTx.map(tx => (
                     <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                       <td style={{ padding: "13px 16px", fontSize: 12, fontFamily: "monospace", color: "#9ca3af" }}>{tx.uid}</td>

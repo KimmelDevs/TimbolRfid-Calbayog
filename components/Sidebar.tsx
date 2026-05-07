@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Zap, LayoutDashboard, CreditCard, MapPin, History,
-  Users, Activity, LogOut, ChevronRight, Wallet
+  Users, LogOut, ChevronRight, Wallet
 } from "lucide-react";
 
 interface NavItem {
@@ -28,13 +28,13 @@ export default function Sidebar({ role, name, email, onLogout }: SidebarProps) {
     { href: "/dashboard/history",      label: "Ride History",  icon: <History size={18} /> },
     { href: "/dashboard/locations",    label: "Locations",     icon: <MapPin size={18} /> },
     { href: "/dashboard/balance",      label: "Balance",       icon: <Wallet size={18} /> },
-    { href: "/dashboard/topup",        label: "Top Up",        icon: <Zap size={18} /> },
   ];
 
   const adminNav: NavItem[] = [
     { href: "/admin",                  label: "Overview",      icon: <LayoutDashboard size={18} /> },
     { href: "/admin/residents",        label: "Residents",     icon: <Users size={18} /> },
     { href: "/admin/transactions",     label: "Transactions",  icon: <CreditCard size={18} /> },
+    { href: "/admin/locations",        label: "GPS Locations", icon: <MapPin size={18} /> },
   ];
 
   const nav = role === "admin" ? adminNav : residentNav;
