@@ -13,13 +13,13 @@ const RFID_TOPIC = "esp32/rfid/gps";
 
 interface Transaction {
   id: string; uid: string; passenger_name: string; amount: number;
-  status: "PAID" | "FAILED"; lat: number; lng: number; timestamp: string; route: string;
+  status: "PAID" | "FAILED"; lat: number; lng: number; created_at: string; route: string;
 }
 interface Resident {
   id: string; full_name: string; email: string; rfid_uid: string | null; balance: number;
 }
 interface LiveScan {
-  uid: string; lat?: number; lng?: number; timestamp: string; resident: Resident | null; status: "PAID" | "FAILED";
+  uid: string; lat?: number; lng?: number; created_at: string; resident: Resident | null; status: "PAID" | "FAILED";
 }
 
 function formatDateTime(iso: string) {
@@ -64,13 +64,13 @@ export default function AdminPage() {
 
     const [recentRes, todayRes, resRes] = await Promise.all([
       // 5 most recent transactions for the table
-      supabase.from("transactions")
-        .select("id,rfid_uid,passenger_name,amount,status,lat,lng,timestamp,route")
-        .order("timestamp", { ascending: false }).limit(5),
+      supabase.from("fare")
+        .select("id,rfid_uid,passenger_name,amount,status,lat,lng,created_at,route")
+        .order("created_at", { ascending: false }).limit(5),
       // today's transactions for stats — only amount and status needed
-      supabase.from("transactions")
+      supabase.from("fare")
         .select("amount,status")
-        .gte("timestamp", todayIso),
+        .gte("created_at", todayIso),
       // all residents
       supabase.from("jeepneyriders")
         .select("id,full_name,email,rfid_uid,balance")
@@ -95,10 +95,10 @@ export default function AdminPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const channel = supabase
-      .channel("admin_transactions_live")
+      .channel("admin_fare_live")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "transactions" },
+        { event: "INSERT", schema: "public", table: "fare" },
         () => {
           if (debounceRef.current) clearTimeout(debounceRef.current);
           debounceRef.current = setTimeout(() => { fetchDashboard(); }, 1500);
@@ -121,73 +121,41 @@ export default function AdminPage() {
     const now = new Date().toISOString();
     const FARE = 10;
 
-    // Look up rider directly from jeepneyriders (same approach as reference)
-    const { data: matched } = await supabase
-      .from("jeepneyriders")
-      .select("id,full_name,email,rfid_uid,balance")
-      .eq("rfid_uid", uid)
-      .maybeSingle();
+    const res  = await fetch("/api/fare", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ uid, lat: parsed.lat, lng: parsed.lng }),
+    });
+    const data = await res.json();
 
-    let status: "PAID" | "FAILED" = "FAILED";
-    let updatedResident = matched ?? null;
+    const status: "PAID" | "FAILED" = data.status === "PAID" ? "PAID" : "FAILED";
+    const rider = data.rider ?? null;
+    const updatedResident: Resident | null = rider
+      ? { id: rider.id, full_name: rider.full_name, email: rider.email ?? "", rfid_uid: uid, balance: rider.balance }
+      : null;
 
-    if (matched && matched.balance >= FARE) {
-      const { error: deductErr } = await supabase
-        .from("jeepneyriders")
-        .update({ balance: matched.balance - FARE })
-        .eq("id", matched.id);
-
-      if (!deductErr) {
-        status = "PAID";
-        updatedResident = { ...matched, balance: matched.balance - FARE };
-
-        const { error: txErr } = await supabase.from("transactions").insert({
-          rfid_uid:       uid,
-          amount:         FARE,
-          status:         "PAID",
-          balance_after:  matched.balance - FARE,
-          passenger_name: matched.full_name,
-          lat:            parsed.lat ?? null,
-          lng:            parsed.lng ?? null,
-          route:          "Timbol",
-          timestamp:      now,
-        });
-        if (txErr) console.error("[tx PAID]", txErr.code, txErr.message, txErr.details);
-
-        setResidents(prev => prev.map(r =>
-          r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
-        ));
-        setRecentTx(prev => [{
-          id:             crypto.randomUUID(),
-          uid,
-          passenger_name: matched.full_name,
-          amount:         FARE,
-          status:         "PAID" as const,
-          lat:            parsed.lat ?? 0,
-          lng:            parsed.lng ?? 0,
-          timestamp:      now,
-          route:          "Timbol",
-        }, ...prev].slice(0, 5));
-        setTodayPaid(p => p + 1);
-        setTodayRevenue(r => r + FARE);
-      }
-    } else {
-      const { error: txErrF } = await supabase.from("transactions").insert({
-        rfid_uid:       uid,
+    if (status === "PAID" && updatedResident) {
+      setResidents(prev => prev.map(r =>
+        r.id === updatedResident.id ? { ...r, balance: updatedResident.balance } : r
+      ));
+      setRecentTx(prev => [{
+        id:             crypto.randomUUID(),
+        uid,
+        passenger_name: updatedResident.full_name,
         amount:         FARE,
-        status:         "FAILED",
-        balance_after:  matched?.balance ?? 0,
-        passenger_name: matched?.full_name ?? null,
-        lat:            parsed.lat ?? null,
-        lng:            parsed.lng ?? null,
+        status:         "PAID" as const,
+        lat:            parsed.lat ?? 0,
+        lng:            parsed.lng ?? 0,
+        created_at:     now,
         route:          "Timbol",
-        timestamp:      now,
-      });
-      if (txErrF) console.error("[tx FAILED]", txErrF.code, txErrF.message, txErrF.details);
+      }, ...prev].slice(0, 5));
+      setTodayPaid(p => p + 1);
+      setTodayRevenue(r => r + FARE);
+    } else {
       setTodayFailed(f => f + 1);
     }
 
-    const scan: LiveScan = { uid, lat: parsed.lat, lng: parsed.lng, timestamp: now, resident: updatedResident, status };
+    const scan: LiveScan = { uid, lat: parsed.lat, lng: parsed.lng, created_at: now, resident: updatedResident, status };
     setLastScan(scan);
     setLiveScans(prev => [scan, ...prev].slice(0, 20));
     setScanFlash(true);
@@ -356,7 +324,7 @@ export default function AdminPage() {
                     }}>
                       {lastScan.status === "PAID" ? "✓ PAID — ₱10 deducted" : lastScan.resident ? "✗ LOW BALANCE" : "✗ UNREGISTERED"}
                     </span>
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>{timeAgo(lastScan.timestamp)}</span>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>{timeAgo(lastScan.created_at)}</span>
                   </div>
                 </div>
 
@@ -452,7 +420,7 @@ export default function AdminPage() {
                 </div>
               ) : (
                 liveScans.map((scan, i) => (
-                  <div key={`${scan.uid}-${scan.timestamp}`} style={{
+                  <div key={`${scan.uid}-${scan.created_at}`} style={{
                     padding: "10px 20px",
                     borderBottom: "1px solid rgba(255,255,255,0.025)",
                     display: "flex", alignItems: "center", gap: 10,
@@ -466,7 +434,7 @@ export default function AdminPage() {
                     <span style={{ fontSize: 12, color: "#6b7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {scan.resident ? scan.resident.full_name : "Unknown card"}
                     </span>
-                    <span style={{ fontSize: 11, color: "#4b5563", flexShrink: 0 }}>{timeAgo(scan.timestamp)}</span>
+                    <span style={{ fontSize: 11, color: "#4b5563", flexShrink: 0 }}>{timeAgo(scan.created_at)}</span>
                   </div>
                 ))
               )}
@@ -547,7 +515,7 @@ export default function AdminPage() {
                           fontFamily: "Syne,sans-serif",
                         }}>{tx.status}</span>
                       </td>
-                      <td style={{ padding: "13px 16px", fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.timestamp)}</td>
+                      <td style={{ padding: "13px 16px", fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.created_at)}</td>
                     </tr>
                   ))
               }
