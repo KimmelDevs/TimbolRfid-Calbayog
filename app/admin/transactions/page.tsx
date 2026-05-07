@@ -1,17 +1,17 @@
 "use client";
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { Search, MapPin, ExternalLink, TrendingUp, CheckCircle2, XCircle, Download } from "lucide-react";
 
 interface Transaction {
   id: string;
-  uid: string;
+  rfid_uid: string;
   passenger_name: string;
   amount: number;
   status: "PAID" | "FAILED";
   lat: number | null;
   lng: number | null;
-  timestamp: string;
+  created_at: string;
   route: string;
 }
 
@@ -32,10 +32,11 @@ export default function AdminTransactionsPage() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("transactions")
-        .select("id, uid, passenger_name, amount, status, lat, lng, timestamp, route")
-        .order("timestamp", { ascending: false });
+      const { data, error } = await supabaseAdmin
+        .from("fare")
+        .select("id, rfid_uid, passenger_name, amount, status, lat, lng, created_at, route")
+        .order("created_at", { ascending: false });
+      if (error) console.error(error);
       if (data) setTransactions(data);
       setLoading(false);
     })();
@@ -49,23 +50,22 @@ export default function AdminTransactionsPage() {
     const mS = filter === "ALL" || t.status === filter;
     const q  = search.toLowerCase();
     const mQ = t.passenger_name?.toLowerCase().includes(q) ||
-               t.uid.toLowerCase().includes(q) ||
-               t.route.toLowerCase().includes(q) ||
+               t.rfid_uid?.toLowerCase().includes(q) ||
+               t.route?.toLowerCase().includes(q) ||
                t.id.toLowerCase().includes(q);
     return mS && mQ;
   });
 
-  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   const handleSearch = (v: string) => { setSearch(v); setPage(0); };
   const handleFilter = (f: "ALL" | "PAID" | "FAILED") => { setFilter(f); setPage(0); };
 
-  // CSV export
   const exportCSV = () => {
-    const headers = ["ID", "UID", "Passenger", "Route", "Amount", "Status", "Timestamp", "Lat", "Lng"];
-    const rows = filtered.map(t => [t.id, t.uid, t.passenger_name, t.route, t.amount, t.status, t.timestamp, t.lat ?? "", t.lng ?? ""]);
-    const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+    const headers = ["ID", "RFID UID", "Passenger", "Route", "Amount", "Status", "Timestamp", "Lat", "Lng"];
+    const rows = filtered.map(t => [t.id, t.rfid_uid, t.passenger_name, t.route, t.amount, t.status, t.created_at, t.lat ?? "", t.lng ?? ""]);
+    const csv  = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
@@ -75,7 +75,6 @@ export default function AdminTransactionsPage() {
 
   return (
     <div style={{ padding: "36px 40px" }}>
-      {/* Header */}
       <div className="fade-up" style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
           <h1 style={{ fontFamily: "Syne,sans-serif", fontSize: 26, fontWeight: 700, marginBottom: 6 }}>All Transactions</h1>
@@ -93,12 +92,11 @@ export default function AdminTransactionsPage() {
         </button>
       </div>
 
-      {/* Summary stat chips */}
       <div className="fade-up delay-1" style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
         {[
           { label: "Revenue", value: `₱${revenue.toFixed(2)}`, color: "#f5a623", icon: <TrendingUp size={14}/> },
-          { label: "Paid",    value: String(paid.length),   color: "#22c55e", icon: <CheckCircle2 size={14}/> },
-          { label: "Failed",  value: String(failed.length), color: "#ef4444", icon: <XCircle size={14}/> },
+          { label: "Paid",    value: String(paid.length),       color: "#22c55e", icon: <CheckCircle2 size={14}/> },
+          { label: "Failed",  value: String(failed.length),     color: "#ef4444", icon: <XCircle size={14}/> },
         ].map(s => (
           <div key={s.label} style={{
             display: "flex", alignItems: "center", gap: 10,
@@ -112,7 +110,6 @@ export default function AdminTransactionsPage() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="fade-up delay-1" style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
           <Search size={15} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#6b7280" }}/>
@@ -138,7 +135,6 @@ export default function AdminTransactionsPage() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="fade-up delay-2" style={{
         background: "#181d2a", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 14, overflow: "hidden",
       }}>
@@ -146,7 +142,7 @@ export default function AdminTransactionsPage() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "rgba(255,255,255,0.02)" }}>
-                {["UID", "Passenger", "Route", "Fare", "Status", "Date/Time", "Location"].map(h => (
+                {["RFID UID", "Passenger", "Route", "Fare", "Status", "Date/Time", "Location"].map(h => (
                   <th key={h} style={{ padding: "13px 16px", fontSize: 12, color: "#6b7280", textAlign: "left", fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
@@ -166,7 +162,7 @@ export default function AdminTransactionsPage() {
                   ? <tr><td colSpan={7} style={{ padding: 48, textAlign: "center", color: "#6b7280", fontSize: 14 }}>No results found.</td></tr>
                   : paginated.map(tx => (
                       <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                        <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#9ca3af" }}>{tx.uid}</td>
+                        <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#9ca3af" }}>{tx.rfid_uid}</td>
                         <td style={{ padding: "14px 16px", fontSize: 13 }}>{tx.passenger_name}</td>
                         <td style={{ padding: "14px 16px", fontSize: 13 }}>{tx.route}</td>
                         <td style={{ padding: "14px 16px", fontSize: 14, fontWeight: 600, fontFamily: "Syne,sans-serif" }}>₱{Number(tx.amount).toFixed(2)}</td>
@@ -179,7 +175,7 @@ export default function AdminTransactionsPage() {
                             fontFamily: "Syne,sans-serif",
                           }}>{tx.status}</span>
                         </td>
-                        <td style={{ padding: "14px 16px", fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.timestamp)}</td>
+                        <td style={{ padding: "14px 16px", fontSize: 12, color: "#6b7280" }}>{formatDateTime(tx.created_at)}</td>
                         <td style={{ padding: "14px 16px" }}>
                           {tx.lat && tx.lng
                             ? <a href={`https://www.google.com/maps?q=${tx.lat},${tx.lng}`} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#3b82f6", textDecoration: "none" }}>
@@ -195,7 +191,6 @@ export default function AdminTransactionsPage() {
           </table>
         </div>
 
-        {/* Pagination */}
         {!loading && totalPages > 1 && (
           <div style={{
             display: "flex", justifyContent: "space-between", alignItems: "center",
