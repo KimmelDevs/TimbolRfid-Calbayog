@@ -14,10 +14,9 @@ export async function POST(req: NextRequest) {
 
     if (!uid) return NextResponse.json({ error: "Missing uid" }, { status: 400 });
 
-    // Look up resident by RFID uid
     const { data: resident, error: lookupErr } = await supabase
       .from("jeepneyriders")
-      .select("id, full_name, balance, rfid_uid")
+      .select("id, full_name, email, balance, rfid_uid") // ← added email
       .eq("rfid_uid", uid)
       .maybeSingle();
 
@@ -26,7 +25,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: lookupErr.message }, { status: 500 });
     }
 
-    // Not registered
     if (!resident) {
       await supabase.from("transactions").insert({
         rfid_uid:      uid,
@@ -37,7 +35,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "FAILED", reason: "NOT_FOUND" });
     }
 
-    // Insufficient balance
     if (resident.balance < FARE) {
       await supabase.from("transactions").insert({
         rfid_uid:      uid,
@@ -48,7 +45,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "FAILED", reason: "LOW_BALANCE", resident });
     }
 
-    // Deduct balance
     const newBalance = resident.balance - FARE;
     const { error: deductErr } = await supabase
       .from("jeepneyriders")
@@ -60,7 +56,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: deductErr.message }, { status: 500 });
     }
 
-    // Record transaction
     const { error: txErr } = await supabase.from("transactions").insert({
       rfid_uid:      uid,
       status:        "PAID",
