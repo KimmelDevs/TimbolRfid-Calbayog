@@ -143,16 +143,16 @@ export default function AdminPage() {
 
         const { error: txErr } = await supabase.from("transactions").insert({
           rfid_uid:       uid,
-          passenger_name: matched.full_name,
           amount:         FARE,
           status:         "PAID",
           balance_after:  matched.balance - FARE,
+          passenger_name: matched.full_name,
           lat:            parsed.lat ?? null,
           lng:            parsed.lng ?? null,
           route:          "Timbol",
           timestamp:      now,
         });
-        if (txErr) console.error("[tx insert PAID]", txErr.message);
+        if (txErr) console.error("[tx insert PAID]", txErr.code, txErr.message, txErr.details);
 
         setResidents(prev => prev.map(r =>
           r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
@@ -176,16 +176,16 @@ export default function AdminPage() {
     } else {
       const { error: txErrF } = await supabase.from("transactions").insert({
         rfid_uid:       uid,
-        passenger_name: matched?.full_name ?? null,
         amount:         FARE,
         status:         "FAILED",
         balance_after:  matched?.balance ?? 0,
+        passenger_name: matched?.full_name ?? null,
         lat:            parsed.lat ?? null,
         lng:            parsed.lng ?? null,
         route:          "Timbol",
         timestamp:      now,
       });
-      if (txErrF) console.error("[tx insert FAILED]", txErrF.message);
+      if (txErrF) console.error("[tx insert FAILED]", txErrF.code, txErrF.message, txErrF.details);
     }
 
     const scan: LiveScan = {
