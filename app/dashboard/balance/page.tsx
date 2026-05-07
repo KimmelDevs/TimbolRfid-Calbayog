@@ -12,7 +12,7 @@ interface Transaction {
   id: string;
   amount: number;
   status: "PAID" | "FAILED";
-  timestamp: string;
+  created_at: string;
   route: string;
 }
 
@@ -40,10 +40,10 @@ export default function BalancePage() {
       const [txRes, tuRes] = await Promise.all([
         user.rfidUid
           ? supabase
-              .from("transactions")
-              .select("id, amount, status, timestamp, route")
-              .eq("uid", user.rfidUid)
-              .order("timestamp", { ascending: false })
+              .from("fare")
+              .select("id, amount, status, created_at, route")
+              .eq("rfid_uid", user.rfidUid)
+              .order("created_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
         supabase
           .from("topups")
@@ -63,7 +63,6 @@ export default function BalancePage() {
     }
   };
 
-  // Refresh profile + data on every visit so balance is always fresh
   useEffect(() => {
     refreshProfile().catch(() => {});
     fetchData();
@@ -79,6 +78,8 @@ export default function BalancePage() {
   const spent    = paidTx.reduce((s, t) => s + t.amount, 0);
   const avgFare  = paidTx.length ? (spent / paidTx.length) : 0;
   const recentTx = transactions.slice(0, 3);
+  const paidTopups = topups.filter(t => t.status === "paid");
+  const totalTopped = paidTopups.reduce((s, t) => s + t.amount, 0);
 
   const card = {
     background: "#181d2a",
@@ -97,32 +98,39 @@ export default function BalancePage() {
           <p style={{ color: "#6b7280", fontSize: 14 }}>Your RFID card balance and payment summary.</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={handleRefresh} disabled={refreshing} style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "9px 16px", borderRadius: 9,
-            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
-            color: "#9ca3af", fontSize: 13, fontWeight: 500, cursor: "pointer",
-            opacity: refreshing ? 0.6 : 1, transition: "opacity 0.2s", fontFamily: "inherit",
-          }}>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "9px 16px", borderRadius: 9,
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
+              color: "#9ca3af", fontSize: 13, fontWeight: 500, cursor: "pointer",
+              opacity: refreshing ? 0.6 : 1, transition: "opacity 0.2s", fontFamily: "inherit",
+            }}
+          >
             <RefreshCw size={14} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} />
             Refresh
           </button>
-          <button onClick={() => router.push("/dashboard/topup")} style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "9px 18px", borderRadius: 9,
-            background: "linear-gradient(135deg,#f5a623,#e8813a)",
-            border: "none", color: "#fff",
-            fontSize: 13, fontWeight: 600, cursor: "pointer",
-            fontFamily: "Syne,sans-serif",
-            boxShadow: "0 4px 16px rgba(245,166,35,0.3)",
-            transition: "opacity 0.2s",
-          }}>
+          <button
+            onClick={() => router.push("/dashboard/topup")}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "9px 18px", borderRadius: 9,
+              background: "linear-gradient(135deg,#f5a623,#e8813a)",
+              border: "none", color: "#fff",
+              fontSize: 13, fontWeight: 600, cursor: "pointer",
+              fontFamily: "Syne,sans-serif",
+              boxShadow: "0 4px 16px rgba(245,166,35,0.3)",
+            }}
+          >
             <Plus size={15} />
             Top Up
           </button>
         </div>
       </div>
 
+      {/* Error */}
       {error && (
         <div className="fade-up" style={{
           background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
@@ -134,7 +142,8 @@ export default function BalancePage() {
         </div>
       )}
 
-      {!user?.rfidUid && !loading && (
+      {/* No RFID */}
+      {!loading && !user?.rfidUid && (
         <div className="fade-up" style={{
           background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.18)",
           borderRadius: 12, padding: "20px 24px", marginBottom: 24,
@@ -161,17 +170,20 @@ export default function BalancePage() {
         }} />
         <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>Available Balance</div>
         <div style={{ fontFamily: "Syne,sans-serif", fontSize: 52, fontWeight: 800, color: "#22c55e", lineHeight: 1 }}>
-          {loading ? "—" : `₱${user?.balance?.toFixed(2) ?? "0.00"}`}
+          {loading ? "—" : "₱" + (user?.balance?.toFixed(2) ?? "0.00")}
         </div>
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <span>RFID: <span style={{ fontFamily: "monospace", color: "#9ca3af" }}>{user?.rfidUid ?? "Not registered"}</span></span>
-          <button onClick={() => router.push("/dashboard/topup")} style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)",
-            borderRadius: 8, padding: "8px 16px",
-            color: "#22c55e", fontSize: 13, fontWeight: 600,
-            cursor: "pointer", fontFamily: "Syne,sans-serif",
-          }}>
+          <span>{"RFID: "}<span style={{ fontFamily: "monospace", color: "#9ca3af" }}>{user?.rfidUid ?? "Not registered"}</span></span>
+          <button
+            onClick={() => router.push("/dashboard/topup")}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)",
+              borderRadius: 8, padding: "8px 16px",
+              color: "#22c55e", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", fontFamily: "Syne,sans-serif",
+            }}
+          >
             <ArrowUpRight size={14} />
             Top Up Now
           </button>
@@ -186,10 +198,10 @@ export default function BalancePage() {
             <span style={{ fontSize: 13, color: "#6b7280" }}>Total Spent</span>
           </div>
           <div style={{ fontFamily: "Syne,sans-serif", fontSize: 26, fontWeight: 700, color: "#ef4444" }}>
-            {loading ? "—" : `₱${spent.toFixed(2)}`}
+            {loading ? "—" : "₱" + spent.toFixed(2)}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-            {loading ? "" : `${paidTx.length} successful ride${paidTx.length !== 1 ? "s" : ""}`}
+            {!loading && (paidTx.length + " successful ride" + (paidTx.length !== 1 ? "s" : ""))}
           </div>
         </div>
 
@@ -199,7 +211,7 @@ export default function BalancePage() {
             <span style={{ fontSize: 13, color: "#6b7280" }}>Avg. Fare</span>
           </div>
           <div style={{ fontFamily: "Syne,sans-serif", fontSize: 26, fontWeight: 700 }}>
-            {loading ? "—" : `₱${avgFare.toFixed(2)}`}
+            {loading ? "—" : "₱" + avgFare.toFixed(2)}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>per ride</div>
         </div>
@@ -210,15 +222,15 @@ export default function BalancePage() {
             <span style={{ fontSize: 13, color: "#6b7280" }}>Total Topped Up</span>
           </div>
           <div style={{ fontFamily: "Syne,sans-serif", fontSize: 26, fontWeight: 700, color: "#f5a623" }}>
-            {loading ? "—" : `₱${topups.filter(t => t.status === "paid").reduce((s, t) => s + t.amount, 0).toFixed(2)}`}
+            {loading ? "—" : "₱" + totalTopped.toFixed(2)}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-            {topups.filter(t => t.status === "paid").length} top-up{topups.filter(t => t.status === "paid").length !== 1 ? "s" : ""}
+            {!loading && (paidTopups.length + " top-up" + (paidTopups.length !== 1 ? "s" : ""))}
           </div>
         </div>
       </div>
 
-      {/* Recent top-ups */}
+      {/* Top-up history */}
       {!loading && topups.length > 0 && (
         <div className="fade-up delay-3" style={{ ...card, marginBottom: 24 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, fontFamily: "Syne,sans-serif" }}>Top-up History</div>
@@ -248,7 +260,7 @@ export default function BalancePage() {
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontFamily: "Syne,sans-serif", fontSize: 15, fontWeight: 700, color: tu.status === "paid" ? "#f5a623" : "#6b7280" }}>
-                    +₱{tu.amount.toFixed(2)}
+                    {"+" + "₱" + tu.amount.toFixed(2)}
                   </div>
                   <div style={{
                     fontSize: 11, fontWeight: 600, marginTop: 2,
@@ -269,38 +281,43 @@ export default function BalancePage() {
         <div className="fade-up delay-3" style={{ ...card, marginBottom: 24 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, fontFamily: "Syne,sans-serif" }}>Recent Rides</div>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            {recentTx.map((tx, i) => (
-              <div key={tx.id} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "12px 0",
-                borderBottom: i < recentTx.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 8,
-                    background: tx.status === "PAID" ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    {tx.status === "PAID"
-                      ? <CheckCircle2 size={15} color="#22c55e" />
-                      : <AlertCircle size={15} color="#ef4444" />}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{tx.route}</div>
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      {new Date(tx.timestamp).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+            {recentTx.map((tx, i) => {
+              const isPaid = tx.status === "PAID";
+              return (
+                <div key={tx.id} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "12px 0",
+                  borderBottom: i < recentTx.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 8,
+                      background: isPaid ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {isPaid && <CheckCircle2 size={15} color="#22c55e" />}
+                      {!isPaid && <AlertCircle size={15} color="#ef4444" />}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{tx.route}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        {new Date(tx.created_at).toLocaleString("en-PH", {
+                          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                        })}
+                      </div>
                     </div>
                   </div>
+                  <div style={{ fontFamily: "Syne,sans-serif", fontSize: 15, fontWeight: 700, color: isPaid ? "#f5a623" : "#ef4444" }}>
+                    {isPaid ? "-₱" + tx.amount : "FAILED"}
+                  </div>
                 </div>
-                <div style={{ fontFamily: "Syne,sans-serif", fontSize: 15, fontWeight: 700, color: tx.status === "PAID" ? "#f5a623" : "#ef4444" }}>
-                  {tx.status === "PAID" ? `-₱${tx.amount}` : "FAILED"}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
+      {/* Empty state */}
       {!loading && transactions.length === 0 && user?.rfidUid && (
         <div className="fade-up delay-3" style={{ ...card, marginBottom: 24, textAlign: "center", padding: "40px 24px" }}>
           <Wallet size={36} color="#374151" style={{ marginBottom: 12 }} />

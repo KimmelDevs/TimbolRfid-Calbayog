@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Zap, LayoutDashboard, CreditCard, MapPin, History,
+  Zap, LayoutDashboard, CreditCard, MapPin,
   Users, LogOut, ChevronRight, Wallet
 } from "lucide-react";
 
@@ -25,7 +25,6 @@ export default function Sidebar({ role, name, email, onLogout }: SidebarProps) {
   const residentNav: NavItem[] = [
     { href: "/dashboard",              label: "Overview",      icon: <LayoutDashboard size={18} /> },
     { href: "/dashboard/transactions", label: "Transactions",  icon: <CreditCard size={18} /> },
-    { href: "/dashboard/history",      label: "Ride History",  icon: <History size={18} /> },
     { href: "/dashboard/locations",    label: "Locations",     icon: <MapPin size={18} /> },
     { href: "/dashboard/balance",      label: "Balance",       icon: <Wallet size={18} /> },
   ];
@@ -45,6 +44,7 @@ export default function Sidebar({ role, name, email, onLogout }: SidebarProps) {
       borderRight: "1px solid rgba(255,255,255,0.06)",
       display: "flex", flexDirection: "column", padding: "28px 0", flexShrink: 0,
     }}>
+
       {/* Brand */}
       <div style={{ padding: "0 20px", marginBottom: 36 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -83,13 +83,16 @@ export default function Sidebar({ role, name, email, onLogout }: SidebarProps) {
         {nav.map(item => {
           const active = pathname === item.href;
           return (
-            <Link key={item.href} href={item.href} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 12px", borderRadius: 9, textDecoration: "none",
-              background: active ? "rgba(245,166,35,0.1)" : "transparent",
-              color: active ? "#f5a623" : "#9ca3af",
-              transition: "all 0.15s",
-            }}
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 12px", borderRadius: 9, textDecoration: "none",
+                background: active ? "rgba(245,166,35,0.1)" : "transparent",
+                color: active ? "#f5a623" : "#9ca3af",
+                transition: "all 0.15s",
+              }}
               onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)"; }}
               onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
             >
@@ -109,18 +112,27 @@ export default function Sidebar({ role, name, email, onLogout }: SidebarProps) {
           <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{name}</div>
           <div style={{ fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis" }}>{email}</div>
         </div>
-        <button onClick={onLogout} style={{
-          width: "100%", display: "flex", alignItems: "center", gap: 10,
-          padding: "10px 12px", borderRadius: 9, background: "none",
-          border: "none", color: "#6b7280", cursor: "pointer", fontSize: 14,
-          transition: "all 0.15s",
-        }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#ef4444"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.07)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#6b7280"; (e.currentTarget as HTMLElement).style.background = "none"; }}
+        <button
+          onClick={onLogout}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 12px", borderRadius: 9, background: "none",
+            border: "none", color: "#6b7280", cursor: "pointer", fontSize: 14,
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.color = "#ef4444";
+            (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.07)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.color = "#6b7280";
+            (e.currentTarget as HTMLElement).style.background = "none";
+          }}
         >
           <LogOut size={17} /> Sign out
         </button>
       </div>
+
     </aside>
   );
 }
