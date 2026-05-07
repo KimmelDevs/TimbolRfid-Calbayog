@@ -37,10 +37,11 @@ export async function POST(req: NextRequest) {
 
     if (resident.balance < FARE) {
       await supabase.from("transactions").insert({
-        rfid_uid:      uid,
-        status:        "FAILED",
-        amount:        FARE,
-        balance_after: resident.balance,
+        rfid_uid:       uid,
+        status:         "FAILED",
+        amount:         FARE,
+        balance_after:  resident.balance,
+        passenger_name: resident.full_name,
       });
       return NextResponse.json({ status: "FAILED", reason: "LOW_BALANCE", resident });
     }
@@ -57,10 +58,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { error: txErr } = await supabase.from("transactions").insert({
-      rfid_uid:      uid,
-      status:        "PAID",
-      amount:        FARE,
-      balance_after: newBalance,
+      rfid_uid:       uid,
+      status:         "PAID",
+      amount:         FARE,
+      balance_after:  newBalance,
+      passenger_name: resident.full_name,
     });
 
     if (txErr) {

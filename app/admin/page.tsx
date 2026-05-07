@@ -502,7 +502,7 @@ export default function AdminPage() {
                 : recentTx.map(tx => (
                     <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                       <td style={{ padding: "13px 16px", fontSize: 12, fontFamily: "monospace", color: "#9ca3af" }}>{tx.uid}</td>
-                      <td style={{ padding: "13px 16px", fontSize: 13 }}>{tx.passenger_name}</td>
+                      <td style={{ padding: "13px 16px", fontSize: 13 }}>{tx.passenger_name || <span style={{ color: "#4b5563", fontStyle: "italic" }}>Unknown</span>}</td>
                       <td style={{ padding: "13px 16px", fontSize: 13 }}>{tx.route}</td>
                       <td style={{ padding: "13px 16px", fontSize: 14, fontWeight: 600, fontFamily: "Syne,sans-serif" }}>₱{Number(tx.amount).toFixed(2)}</td>
                       <td style={{ padding: "13px 16px" }}>
