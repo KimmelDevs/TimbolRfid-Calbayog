@@ -141,7 +141,7 @@ export default function AdminPage() {
         status = "PAID";
         updatedResident = { ...matched, balance: matched.balance - FARE };
 
-        await supabase.from("transactions").insert({
+        const { error: txErr } = await supabase.from("transactions").insert({
           rfid_uid:       uid,
           amount:         FARE,
           status:         "PAID",
@@ -152,6 +152,7 @@ export default function AdminPage() {
           route:          "Timbol",
           timestamp:      now,
         });
+        if (txErr) console.error("[tx PAID]", txErr.code, txErr.message, txErr.details);
 
         setResidents(prev => prev.map(r =>
           r.id === matched.id ? { ...r, balance: matched.balance - FARE } : r
@@ -171,7 +172,7 @@ export default function AdminPage() {
         setTodayRevenue(r => r + FARE);
       }
     } else {
-      await supabase.from("transactions").insert({
+      const { error: txErrF } = await supabase.from("transactions").insert({
         rfid_uid:       uid,
         amount:         FARE,
         status:         "FAILED",
@@ -182,6 +183,7 @@ export default function AdminPage() {
         route:          "Timbol",
         timestamp:      now,
       });
+      if (txErrF) console.error("[tx FAILED]", txErrF.code, txErrF.message, txErrF.details);
       setTodayFailed(f => f + 1);
     }
 
