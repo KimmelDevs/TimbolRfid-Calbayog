@@ -113,6 +113,8 @@ export default function AdminPage() {
           amount:        FARE,
           status:        "PAID",
           balance_after: matched.balance - FARE,
+          lat:           parsed.lat ?? null,
+          lng:           parsed.lng ?? null,
         });
 
         setResidents(prev => prev.map(r =>
@@ -137,6 +139,8 @@ export default function AdminPage() {
         amount:        FARE,
         status:        "FAILED",
         balance_after: matched?.balance ?? 0,
+        lat:           parsed.lat ?? null,
+        lng:           parsed.lng ?? null,
       });
     }
 
