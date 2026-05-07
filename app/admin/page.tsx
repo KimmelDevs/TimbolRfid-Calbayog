@@ -305,7 +305,7 @@ export default function AdminPage() {
                       <div>
                         <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 3 }}>GPS</div>
                         <a
-                          href={`https://www.google.com/maps?q=${lastScan.lat},${lastScan.lng}`}
+                          href={`https://www.openstreetmap.org/?mlat=${lastScan.lat}&mlon=${lastScan.lng}#map=15/${lastScan.lat}/${lastScan.lng}`}
                           target="_blank" rel="noopener noreferrer"
                           style={{ fontSize: 12, color: "#3b82f6", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}
                         >
