@@ -100,9 +100,18 @@ export default function AdminPage() {
     };
   }, [fetchDashboard]);
 
-  const handleMqttMessage = useCallback(async (payload: string) => {
+  const handleMqttMessage = useCallback(async (raw: string) => {
     let parsed: { uid?: string; lat?: number; lng?: number } = {};
-    try { parsed = JSON.parse(payload); } catch { return; }
+    try {
+      const envelope: { payload?: string; uid?: string; lat?: number; lng?: number } = JSON.parse(raw);
+      if (envelope.payload) {
+        // Signed HMAC envelope — unwrap inner payload string
+        parsed = JSON.parse(envelope.payload);
+      } else {
+        // Legacy unsigned format
+        parsed = envelope;
+      }
+    } catch { return; }
     const uid = parsed.uid?.trim().toUpperCase();
     if (!uid) return;
 

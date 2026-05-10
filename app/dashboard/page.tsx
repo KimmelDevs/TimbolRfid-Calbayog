@@ -22,18 +22,28 @@ export default function DashboardPage() {
   const mqttEnabled = registerState === "waiting";
 
   const handleMqttMessage = useCallback(
-    async (payload: string) => {
+    async (raw: string) => {
       // Ignore messages if we're not in waiting state
       if (registerState !== "waiting") return;
 
-      let parsed: { uid?: string } = {};
+      // Unwrap the HMAC envelope: { payload: string, sig: string }
+      // The inner payload string is itself JSON containing the uid
+      let uid: string | undefined;
       try {
-        parsed = JSON.parse(payload);
+        const envelope: { payload?: string; sig?: string; uid?: string } = JSON.parse(raw);
+
+        if (envelope.payload) {
+          // New signed format — extract uid from inner payload string
+          const inner: { uid?: string } = JSON.parse(envelope.payload);
+          uid = inner.uid?.trim().toUpperCase();
+        } else if (envelope.uid) {
+          // Legacy unsigned format — still works during transition
+          uid = envelope.uid.trim().toUpperCase();
+        }
       } catch {
         return; // not our message format
       }
 
-      const uid = parsed.uid?.trim().toUpperCase();
       if (!uid || !user) return;
 
       setScannedUid(uid);
